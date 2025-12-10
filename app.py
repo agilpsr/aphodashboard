@@ -9,6 +9,7 @@ import folium
 from streamlit_folium import st_folium
 import xlsxwriter
 from PIL import Image
+import base64 # <-- NEW IMPORT FOR BACKGROUND
 
 # --- 1. SETUP PAGE CONFIGURATION ---
 st.set_page_config(page_title="APHO Tiruchirappalli Dashboard", layout="wide")
@@ -90,6 +91,12 @@ def show_image_popup(row_data):
         st.image(row_data['Original Image URL'], caption="Full Resolution", use_container_width=True)
     else:
         st.error("Image not available.")
+
+# --- NEW HELPER FOR BACKGROUND IMAGE ---
+def get_base64_of_bin_file(bin_file):
+    with open(bin_file, 'rb') as f:
+        data = f.read()
+    return base64.b64encode(data).decode()
 
 # --- MAIN DASHBOARD LOGIC ---
 def render_dashboard(selected_key):
@@ -388,28 +395,53 @@ def render_dashboard(selected_key):
             st.dataframe(df_id, use_container_width=True)
         else: st.info("No ID Data")
 
-# --- HOME PAGE LOGIC ---
-def render_home_page():
-    # Logo and Header
-    c_logo, c_text = st.columns([1, 4])
-    with c_logo:
-        try:
-            logo = Image.open("logo.png")
-            st.image(logo, use_container_width=True)
-        except: pass
-    with c_text:
-        st.markdown("# AIRPORT HEALTH ORGANISATION\n### TIRUCHIRAPPALLI INTERNATIONAL AIRPORT")
+# --- HOME PAGE LOGIC (UPDATED WITH FULL BACKGROUND) ---
+def get_base64_of_bin_file(bin_file):
+    with open(bin_file, 'rb') as f:
+        data = f.read()
+    return base64.b64encode(data).decode()
 
+def render_home_page():
+    # 1. SET FULL BACKGROUND IMAGE USING CSS
+    try:
+        bin_str = get_base64_of_bin_file("logo.png")
+        page_bg_img = f"""
+        <style>
+        .stApp {{
+            background-image: url("data:image/png;base64,{bin_str}");
+            background-size: cover;
+            background-position: center center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+        }}
+        /* Add a semi-transparent white backing to make text readable */
+        .block-container {{
+            background-color: rgba(255, 255, 255, 0.85);
+            border-radius: 15px;
+            padding: 3rem;
+            margin-top: 5rem;
+        }}
+        </style>
+        """
+        st.markdown(page_bg_img, unsafe_allow_html=True)
+    except:
+        st.warning("Background image 'logo.png' not found on GitHub.")
+
+    # 2. HEADER AND BUTTONS
+    st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>AIRPORT HEALTH ORGANISATION</h1>", unsafe_allow_html=True)
+    st.markdown("<h3 style='text-align: center; color: #1E3A8A;'>TIRUCHIRAPPALLI INTERNATIONAL AIRPORT</h3>", unsafe_allow_html=True)
+    
     st.divider()
     
-    # Navigation Buttons
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("🦟 Outside Field Activities (Peri)", use_container_width=True):
+    # Center buttons using columns with offsets
+    _, col_buttons, _ = st.columns([1, 2, 1])
+    with col_buttons:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🦟 Outside Field Activities (Peri)", use_container_width=True, type="primary"):
             st.session_state['page'] = 'peri'
             st.rerun()
-    with c2:
-        if st.button("✈️ Inside Field Activities (Intra)", use_container_width=True):
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("✈️ Inside Field Activities (Intra)", use_container_width=True, type="primary"):
             st.session_state['page'] = 'intra'
             st.rerun()
 
