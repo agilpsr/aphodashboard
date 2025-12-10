@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 import io
 import plotly.express as px
-import re  # Added for the "Nuclear" cleaning
+import re
 
 # --- 1. SETUP PAGE CONFIGURATION ---
 st.set_page_config(page_title="Larvae Surveillance Dashboard", layout="wide")
@@ -92,13 +92,8 @@ def plot_metric_bar(data, x_col, y_col, title, color_col):
     fig.update_layout(coloraxis_showscale=False) 
     return fig
 
-# --- HELPER: NUCLEAR CLEANING FUNCTION ---
+# --- HELPER: NUCLEAR CLEANING ---
 def normalize_string(text):
-    """
-    Removes everything that is NOT a letter (a-z) or a number (0-9).
-    Spaces, dashes, and weird garbage symbols are all deleted.
-    Example: "13A - Labor Camp" -> "13alaborcamp"
-    """
     if pd.isna(text):
         return ""
     # Lowercase + Regex replace anything not a-z or 0-9
@@ -106,38 +101,58 @@ def normalize_string(text):
 
 if not df.empty:
     # --- A. CLEANING & MAPPING ---
-    col_map = {c.lower(): c for c in df.columns}
+    # Create a lower-case map to find columns easily
+    col_map_lower = {c.lower(): c for c in df.columns}
     
-    col_zone = col_map.get('zone') or col_map.get('zone_name')
-    col_subzone = col_map.get('subzone') or col_map.get('sub_zone')
-    col_street = col_map.get('streetname') or col_map.get('street_name')
-    col_premises = col_map.get('premises') or col_map.get('premise') or col_map.get('location')
+    col_zone = col_map_lower.get('zone') or col_map_lower.get('zone_name')
+    col_subzone = col_map_lower.get('subzone') or col_map_lower.get('sub_zone')
+    col_street = col_map_lower.get('streetname') or col_map_lower.get('street_name')
+    col_premises = col_map_lower.get('premises') or col_map_lower.get('premise') or col_map_lower.get('location')
     
     col_pos_house_raw = "Among_the_wet_containers_how_"
     col_pos_cont_raw = "In_the_Number_of_wet_containe"
     col_wet_cont_raw = "Number_of_wet_containers_found"
+
+    # --- UNIVERSAL DATE LOGIC ---
+    # STRICT RULE: We MUST use the column named "Date".
+    # We look for 'date' in our lowercase map.
+    date_col = col_map_lower.get('date')
+
+    # If "Date" is missing, we try 'today' as a fallback, but we prioritize 'Date' above all.
+    if not date_col:
+        date_col = col_map_lower.get('today')
+    
+    # Only if both are missing do we fall back to system columns (which we want to avoid)
+    if not date_col:
+        fallback_cols = ['start', '_submission_time']
+        for c in fallback_cols:
+             if c in col_map_lower:
+                 date_col = col_map_lower[c]
+                 break
 
     # --- B. FILTERS ---
     st.sidebar.divider()
     st.sidebar.subheader("Filters")
     df_filtered = df.copy()
 
-    # 1. Date Filter
-    date_col = None
-    possible_date_cols = ['_submission_time', 'start', 'end', 'today', 'Date', 'date']
-    for col in possible_date_cols:
-        if col in df.columns:
-            date_col = col
-            break   
+    # Apply Date Filter (Universally)
     if date_col:
+        # Ensure it is datetime
         df_filtered[date_col] = pd.to_datetime(df_filtered[date_col])
+        
+        # Determine Range
         min_date = df_filtered[date_col].min().date()
         max_date = df_filtered[date_col].max().date()
+        
         d1, d2 = st.sidebar.columns(2)
         start_date = d1.date_input("Start", min_date)
         end_date = d2.date_input("End", max_date)
+        
+        # Filter Logic
         mask = (df_filtered[date_col].dt.date >= start_date) & (df_filtered[date_col].dt.date <= end_date)
         df_filtered = df_filtered.loc[mask]
+    else:
+        st.warning("⚠️ CRITICAL: Could not find a column named 'Date'. Check your Kobo form.")
 
     # 2. Explicit Zone/Subzone Filters
     selected_zones = []
@@ -161,7 +176,7 @@ if not df.empty:
         if selected_streets:
             df_filtered = df_filtered[df_filtered[col_street].astype(str).isin(selected_streets)]
 
-    # --- C. PRE-CALCULATIONS (Numeric Cleanup) ---
+    # --- C. PRE-CALCULATIONS ---
     if col_pos_house_raw in df_filtered.columns:
         df_filtered['pos_house_calc'] = pd.to_numeric(df_filtered[col_pos_house_raw], errors='coerce').fillna(0)
     
@@ -171,21 +186,20 @@ if not df.empty:
     if col_wet_cont_raw in df_filtered.columns:
         df_filtered['wet_cont_calc'] = pd.to_numeric(df_filtered[col_wet_cont_raw], errors='coerce').fillna(0)
 
-    # --- D. LOGIC BRANCHING (Intra vs Peri) ---
+    # --- D. LOGIC BRANCHING ---
     
     if selected_key == 'inside':
-        # --- INTRA-AIRPORT UNIQUE ID LOGIC ---
         if col_premises and date_col:
-            # 1. Create Key Part 1: Date String
+            # 1. Create Key Part 1: Date String (Using the STRICT Date Column)
             df_filtered['date_str_only'] = df_filtered[date_col].dt.date.astype(str)
             
-            # 2. Create Key Part 2: NUCLEAR CLEANED Premise Name
-            # We strip EVERYTHING that is not a-z or 0-9. No spaces, no dashes, no symbols.
+            # 2. Create Key Part 2: CLEANED Premise Name
             df_filtered['premise_clean'] = df_filtered[col_premises].apply(normalize_string)
             
+            # 3. Create Unique ID
             df_filtered['unique_premise_id'] = df_filtered['date_str_only'] + "_" + df_filtered['premise_clean']
             
-            # 3. Group by this Unique ID
+            # 4. Group by this Unique ID
             agg_dict = {
                 'pos_house_calc': 'max',
                 'pos_cont_calc': 'sum',
@@ -196,7 +210,7 @@ if not df.empty:
                 
             df_grouped = df_filtered.groupby('unique_premise_id', as_index=False).agg(agg_dict)
             
-            # 4. Calculate Metrics
+            # 5. Calculate Metrics
             total_unique_premises = df_grouped['unique_premise_id'].nunique()
             
             positive_premises_count = (df_grouped['pos_house_calc'] > 0).sum()
@@ -220,7 +234,7 @@ if not df.empty:
             df_for_graphs = df_filtered.copy()
 
     else:
-        # --- PERI-AIRPORT (STANDARD) LOGIC ---
+        # --- PERI-AIRPORT (STANDARD) ---
         display_count = len(df_filtered)
         df_filtered['is_positive_house'] = df_filtered['pos_house_calc'].apply(lambda x: 1 if x > 0 else 0)
         
