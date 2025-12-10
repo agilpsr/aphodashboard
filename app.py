@@ -22,6 +22,7 @@ if not check_password():
 @st.cache_data(ttl=300)
 def load_kobo_data(url):
     try:
+        # NOTE: Ensure secrets exist or replace with string for local testing
         if "KOBO_TOKEN" in st.secrets:
             token = st.secrets["KOBO_TOKEN"]
         else:
@@ -226,99 +227,128 @@ if not df.empty:
     c_graph, c_report = st.columns([1,1])
     show_graphs = c_graph.toggle("Show Graphical Analysis", value=False)
     
-    # --- G. MONTHLY REPORT GENERATOR ---
+    # --- REPORT HELPER ---
+    def generate_report_df(df_source, report_period_name):
+        # 1. Fetch ID Data for Genus
+        with st.spinner("Fetching Identification Data for Report..."):
+            df_id_rep = load_kobo_data(current_config['id_url'])
+            id_date_col = next((c for c in df_id_rep.columns if 'date' in c.lower() or 'today' in c.lower()), None)
+            if id_date_col:
+                df_id_rep[id_date_col] = pd.to_datetime(df_id_rep[id_date_col])
+                df_id_rep['join_date'] = df_id_rep[id_date_col].dt.date
+        
+        unique_dates = sorted(df_source[date_col].dt.date.unique())
+        report_data = []
+        
+        for i, day in enumerate(unique_dates, 1):
+            df_day = df_source[df_source[date_col].dt.date == day]
+            
+            staffs = ", ".join(df_day[col_username].dropna().unique().astype(str)) if col_username in df_day else ""
+            
+            loc_list = ""
+            if selected_key == 'intra' and col_premises and col_premises in df_day:
+                loc_list = ", ".join(df_day[col_premises].dropna().unique().astype(str))
+            elif selected_key == 'peri' and col_subzone and col_subzone in df_day:
+                loc_list = ", ".join(df_day[col_subzone].dropna().unique().astype(str))
+                
+            d_dry = df_day['dry_cont_calc'].sum()
+            d_wet = df_day['wet_cont_calc'].sum()
+            
+            if selected_key == 'intra':
+                if col_premises in df_day.columns:
+                    df_day['premise_clean'] = df_day[col_premises].apply(normalize_string)
+                    df_day_grp = df_day.groupby('premise_clean').agg({'pos_house_calc':'max', 'pos_cont_calc':'sum', 'wet_cont_calc':'sum'})
+                    
+                    cnt_entries = len(df_day_grp)
+                    cnt_pos = (df_day_grp['pos_house_calc'] > 0).sum()
+                    d_pos_cont = df_day_grp['pos_cont_calc'].sum()
+                    d_wet_sum = df_day_grp['wet_cont_calc'].sum()
+                    
+                    idx_hi = (cnt_pos / cnt_entries * 100) if cnt_entries > 0 else 0
+                    idx_ci = (d_pos_cont / d_wet_sum * 100) if d_wet_sum > 0 else 0
+                    idx_bi = (d_pos_cont / cnt_entries * 100) if cnt_entries > 0 else 0
+                else:
+                    cnt_entries, cnt_pos, idx_hi, idx_ci, idx_bi = 0, 0, 0, 0, 0
+            else:
+                cnt_entries = len(df_day)
+                cnt_pos = (df_day['pos_house_calc'] > 0).sum()
+                d_pos_cont = df_day['pos_cont_calc'].sum()
+                
+                idx_hi = (cnt_pos / cnt_entries * 100) if cnt_entries > 0 else 0
+                idx_ci = (d_pos_cont / d_wet * 100) if d_wet > 0 else 0
+                idx_bi = (d_pos_cont / cnt_entries * 100) if cnt_entries > 0 else 0
+
+            genus_list = ""
+            if not df_id_rep.empty and 'join_date' in df_id_rep.columns:
+                day_id = df_id_rep[df_id_rep['join_date'] == day]
+                g_col = next((c for c in day_id.columns if "Genus" in c), None)
+                if g_col: genus_list = ", ".join(day_id[g_col].dropna().astype(str).tolist())
+
+            report_data.append({
+                "Serial No": i,
+                "Date": day,
+                "Count": cnt_entries,
+                "Staffs": staffs,
+                "Locations": loc_list,
+                "Dry": int(d_dry),
+                "Wet": int(d_wet),
+                "Positives": int(cnt_pos),
+                "HI/PI": round(idx_hi, 2),
+                "CI": round(idx_ci, 2),
+                "BI": round(idx_bi, 2),
+                "Genuses": genus_list
+            })
+        return pd.DataFrame(report_data)
+
+    # --- G. MONTHLY REPORT ---
     with st.expander("📅 Monthly Report Generator", expanded=False):
         if date_col:
             df_report = df.copy()
             df_report[date_col] = pd.to_datetime(df_report[date_col])
             df_report['Month_Year'] = df_report[date_col].dt.strftime('%Y-%m')
             
+            # Explicit Calc Columns
+            df_report['pos_house_calc'] = pd.to_numeric(df_report[col_pos_house_raw], errors='coerce').fillna(0) if col_pos_house_raw in df_report.columns else 0
+            df_report['pos_cont_calc'] = pd.to_numeric(df_report[col_pos_cont_raw], errors='coerce').fillna(0) if col_pos_cont_raw in df_report.columns else 0
+            df_report['wet_cont_calc'] = pd.to_numeric(df_report[col_wet_cont_raw], errors='coerce').fillna(0) if col_wet_cont_raw in df_report.columns else 0
+            df_report['dry_cont_calc'] = pd.to_numeric(df_report[col_dry_cont_raw], errors='coerce').fillna(0) if col_dry_cont_raw in df_report.columns else 0
+
             available_months = sorted(df_report['Month_Year'].unique(), reverse=True)
             selected_month = st.selectbox("Select Month to Generate Report:", available_months)
             
             if selected_month:
                 df_month = df_report[df_report['Month_Year'] == selected_month].copy()
-                
-                # --- CALCULATION COLUMNS FOR REPORT ---
-                df_month['pos_house_calc'] = pd.to_numeric(df_month[col_pos_house_raw], errors='coerce').fillna(0) if col_pos_house_raw in df_month.columns else 0
-                df_month['pos_cont_calc'] = pd.to_numeric(df_month[col_pos_cont_raw], errors='coerce').fillna(0) if col_pos_cont_raw in df_month.columns else 0
-                df_month['wet_cont_calc'] = pd.to_numeric(df_month[col_wet_cont_raw], errors='coerce').fillna(0) if col_wet_cont_raw in df_month.columns else 0
-                df_month['dry_cont_calc'] = pd.to_numeric(df_month[col_dry_cont_raw], errors='coerce').fillna(0) if col_dry_cont_raw in df_month.columns else 0
+                st.dataframe(generate_report_df(df_month, selected_month), hide_index=True, use_container_width=True)
 
-                with st.spinner("Fetching Identification Data for Report..."):
-                    df_id_rep = load_kobo_data(current_config['id_url'])
-                    id_date_col = next((c for c in df_id_rep.columns if 'date' in c.lower() or 'today' in c.lower()), None)
-                    if id_date_col:
-                        df_id_rep[id_date_col] = pd.to_datetime(df_id_rep[id_date_col])
-                        df_id_rep['join_date'] = df_id_rep[id_date_col].dt.date
-                
-                unique_dates = sorted(df_month[date_col].dt.date.unique())
-                report_data = []
-                
-                for i, day in enumerate(unique_dates, 1):
-                    df_day = df_month[df_month[date_col].dt.date == day]
-                    
-                    staffs = ", ".join(df_day[col_username].dropna().unique().astype(str)) if col_username in df_day else ""
-                    
-                    loc_list = ""
-                    if selected_key == 'intra' and col_premises and col_premises in df_day:
-                        loc_list = ", ".join(df_day[col_premises].dropna().unique().astype(str))
-                    elif selected_key == 'peri' and col_subzone and col_subzone in df_day:
-                        loc_list = ", ".join(df_day[col_subzone].dropna().unique().astype(str))
-                        
-                    d_dry = df_day['dry_cont_calc'].sum()
-                    d_wet = df_day['wet_cont_calc'].sum()
-                    
-                    if selected_key == 'intra':
-                        if col_premises in df_day.columns:
-                            df_day['premise_clean'] = df_day[col_premises].apply(normalize_string)
-                            df_day_grp = df_day.groupby('premise_clean').agg({'pos_house_calc':'max', 'pos_cont_calc':'sum', 'wet_cont_calc':'sum'})
-                            
-                            cnt_entries = len(df_day_grp)
-                            cnt_pos = (df_day_grp['pos_house_calc'] > 0).sum()
-                            d_pos_cont = df_day_grp['pos_cont_calc'].sum()
-                            d_wet_sum = df_day_grp['wet_cont_calc'].sum()
-                            
-                            idx_hi = (cnt_pos / cnt_entries * 100) if cnt_entries > 0 else 0
-                            idx_ci = (d_pos_cont / d_wet_sum * 100) if d_wet_sum > 0 else 0
-                            idx_bi = (d_pos_cont / cnt_entries * 100) if cnt_entries > 0 else 0
-                        else:
-                            cnt_entries, cnt_pos, idx_hi, idx_ci, idx_bi = 0, 0, 0, 0, 0
-                    else:
-                        cnt_entries = len(df_day)
-                        cnt_pos = (df_day['pos_house_calc'] > 0).sum()
-                        d_pos_cont = df_day['pos_cont_calc'].sum()
-                        
-                        idx_hi = (cnt_pos / cnt_entries * 100) if cnt_entries > 0 else 0
-                        idx_ci = (d_pos_cont / d_wet * 100) if d_wet > 0 else 0
-                        idx_bi = (d_pos_cont / cnt_entries * 100) if cnt_entries > 0 else 0
+    # --- G2. FORTNIGHT REPORT ---
+    with st.expander("📆 Fortnight Report Generator", expanded=False):
+        if date_col:
+            df_ft = df.copy()
+            df_ft[date_col] = pd.to_datetime(df_ft[date_col])
+            
+            # Explicit Calc Columns
+            df_ft['pos_house_calc'] = pd.to_numeric(df_ft[col_pos_house_raw], errors='coerce').fillna(0) if col_pos_house_raw in df_ft.columns else 0
+            df_ft['pos_cont_calc'] = pd.to_numeric(df_ft[col_pos_cont_raw], errors='coerce').fillna(0) if col_pos_cont_raw in df_ft.columns else 0
+            df_ft['wet_cont_calc'] = pd.to_numeric(df_ft[col_wet_cont_raw], errors='coerce').fillna(0) if col_wet_cont_raw in df_ft.columns else 0
+            df_ft['dry_cont_calc'] = pd.to_numeric(df_ft[col_dry_cont_raw], errors='coerce').fillna(0) if col_dry_cont_raw in df_ft.columns else 0
 
-                    genus_list = ""
-                    if not df_id_rep.empty and 'join_date' in df_id_rep.columns:
-                        day_id = df_id_rep[df_id_rep['join_date'] == day]
-                        g_col = next((c for c in day_id.columns if "Genus" in c), None)
-                        if g_col: genus_list = ", ".join(day_id[g_col].dropna().astype(str).tolist())
-
-                    report_data.append({
-                        "Serial No": i,
-                        "Date": day,
-                        "Count": cnt_entries,
-                        "Staffs": staffs,
-                        "Locations": loc_list,
-                        "Dry": int(d_dry),
-                        "Wet": int(d_wet),
-                        "Positives": int(cnt_pos),
-                        "HI/PI": round(idx_hi, 2),
-                        "CI": round(idx_ci, 2),
-                        "BI": round(idx_bi, 2),
-                        "Genuses": genus_list
-                    })
-                
-                st.dataframe(pd.DataFrame(report_data), hide_index=True, use_container_width=True)
+            # Label Logic: 1-15 is First Half, 16+ is Second Half
+            df_ft['Month_Str'] = df_ft[date_col].dt.strftime('%B %Y')
+            df_ft['Day'] = df_ft[date_col].dt.day
+            df_ft['Fortnight_Label'] = df_ft.apply(lambda x: f"First Half {x['Month_Str']}" if x['Day'] <= 15 else f"Second Half {x['Month_Str']}", axis=1)
+            
+            # Sort options chronologically
+            df_ft = df_ft.sort_values(by=date_col, ascending=False)
+            available_fortnights = df_ft['Fortnight_Label'].unique()
+            
+            selected_ft = st.selectbox("Select Fortnight:", available_fortnights)
+            
+            if selected_ft:
+                df_selected_ft = df_ft[df_ft['Fortnight_Label'] == selected_ft].copy()
+                st.dataframe(generate_report_df(df_selected_ft, selected_ft), hide_index=True, use_container_width=True)
 
     # --- H. VISUALS ---
     if show_graphs:
-        # --- FIXED: DEFINED THESE VARIABLES HERE ---
         show_zone_graph = (len(selected_zones) == 0) and (len(selected_subzones) == 0)
         show_subzone_graph = (len(selected_subzones) == 0)
 
