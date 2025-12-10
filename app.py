@@ -11,6 +11,32 @@ from streamlit_folium import st_folium
 # --- 1. SETUP PAGE CONFIGURATION ---
 st.set_page_config(page_title="Larvae Surveillance Dashboard", layout="wide")
 
+# --- STAFF NAME MAPPING (ADDED) ---
+STAFF_NAMES = {
+    'abhiguptak': 'Abhishek Gupta',
+    'arunhealthinspector': 'Arun',
+    'chandru1426': 'Chandru',
+    'dineshg': 'Dinesh',
+    'iyyappank': 'Iyyapan',
+    'kalaig': 'Kalaichelvan',
+    'kishanth': 'Kishanth',
+    'nitesh9896': 'Nitesh',
+    'prabhahi': 'Prabhakaran',
+    'rajaramha': 'Rajaram',
+    'ramnareshfw': 'Ram naresh',
+    'siddhik23': 'siddhik',
+    'simbuha': 'Silambarasan',
+    'souravmalik7055': 'sourav MAlik'
+}
+
+# --- EXCEL DOWNLOAD HELPER (ADDED) ---
+def to_excel(df):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='Sheet1')
+    processed_data = output.getvalue()
+    return processed_data
+
 # --- 2. PASSWORD PROTECTION (DISABLED) ---
 def check_password():
     return True
@@ -107,11 +133,15 @@ if not df.empty:
     col_username = col_map_lower.get('username')
     col_premises = "Premises" if "Premises" in df.columns else col_map_lower.get('premises')
     
+    # Critical data columns
     col_pos_house_raw = "Among_the_wet_containers_how_"
     col_pos_cont_raw = "Among_the_wet_containers_how_"
-    col_wet_cont_raw = "Number_of_wet_containers_found"
+    col_wet_cont_raw = "Number_of_wet_containers_found" if "Number_of_wet_containers_found" in df.columns else "Number_of_wet_containers_"
     col_dry_cont_raw = "number_of_dry_contai_tentially_hold_water"
     
+    # Larvae entry check
+    col_larvae_id = 'Larva_species_identified'
+
     col_lat = "_Location_latitude"
     col_lon = "_Location_longitude"
 
@@ -155,10 +185,35 @@ if not df.empty:
         if selected_streets: df_filtered = df_filtered[df_filtered[col_street].astype(str).isin(selected_streets)]
 
     # --- C. PRE-CALCULATIONS ---
-    df_filtered['pos_house_calc'] = pd.to_numeric(df_filtered[col_pos_house_raw], errors='coerce').fillna(0) if col_pos_house_raw in df_filtered.columns else 0
-    df_filtered['pos_cont_calc'] = pd.to_numeric(df_filtered[col_pos_cont_raw], errors='coerce').fillna(0) if col_pos_cont_raw in df_filtered.columns else 0
-    df_filtered['wet_cont_calc'] = pd.to_numeric(df_filtered[col_wet_cont_raw], errors='coerce').fillna(0) if col_wet_cont_raw in df_filtered.columns else 0
-    df_filtered['dry_cont_calc'] = pd.to_numeric(df_filtered[col_dry_cont_raw], errors='coerce').fillna(0) if col_dry_cont_raw in df_filtered.columns else 0
+    # Ensure calculations use 0 instead of NaN
+    if col_pos_house_raw in df_filtered.columns:
+        df_filtered[col_pos_house_raw] = pd.to_numeric(df_filtered[col_pos_house_raw], errors='coerce').fillna(0)
+        df_filtered['pos_house_calc'] = df_filtered[col_pos_house_raw]
+    else:
+        df_filtered['pos_house_calc'] = 0
+
+    if col_pos_cont_raw in df_filtered.columns:
+        df_filtered[col_pos_cont_raw] = pd.to_numeric(df_filtered[col_pos_cont_raw], errors='coerce').fillna(0)
+        df_filtered['pos_cont_calc'] = df_filtered[col_pos_cont_raw]
+    else:
+        df_filtered['pos_cont_calc'] = 0
+
+    if col_wet_cont_raw in df_filtered.columns:
+        df_filtered[col_wet_cont_raw] = pd.to_numeric(df_filtered[col_wet_cont_raw], errors='coerce').fillna(0)
+        df_filtered['wet_cont_calc'] = df_filtered[col_wet_cont_raw]
+    else:
+        df_filtered['wet_cont_calc'] = 0
+
+    if col_dry_cont_raw in df_filtered.columns:
+        df_filtered['dry_cont_calc'] = pd.to_numeric(df_filtered[col_dry_cont_raw], errors='coerce').fillna(0)
+    else:
+        df_filtered['dry_cont_calc'] = 0
+        
+    # Check for Larvae ID entry
+    if col_larvae_id in df_filtered.columns:
+        df_filtered['has_larvae_entry'] = df_filtered[col_larvae_id].notna().astype(int)
+    else:
+        df_filtered['has_larvae_entry'] = 0
 
     # --- D. LOGIC BRANCHING ---
     display_count, positive_count, hi_val, ci_val, bi_val = 0, 0, 0, 0, 0
@@ -243,13 +298,19 @@ if not df.empty:
         for i, day in enumerate(unique_dates, 1):
             df_day = df_source[df_source[date_col].dt.date == day]
             
+            # STAFFS
             staffs = ", ".join(df_day[col_username].dropna().unique().astype(str)) if col_username in df_day else ""
             
+            # LOCATIONS & STREETS (ADDED)
             loc_list = ""
+            street_list = ""
             if selected_key == 'intra' and col_premises and col_premises in df_day:
                 loc_list = ", ".join(df_day[col_premises].dropna().unique().astype(str))
             elif selected_key == 'peri' and col_subzone and col_subzone in df_day:
                 loc_list = ", ".join(df_day[col_subzone].dropna().unique().astype(str))
+            
+            if col_street and col_street in df_day.columns:
+                street_list = ", ".join(df_day[col_street].dropna().astype(str).unique())
                 
             d_dry = df_day['dry_cont_calc'].sum()
             d_wet = df_day['wet_cont_calc'].sum()
@@ -290,6 +351,7 @@ if not df.empty:
                 "Count": cnt_entries,
                 "Staffs": staffs,
                 "Locations": loc_list,
+                "Streets": street_list, # ADDED TO REPORT
                 "Dry": int(d_dry),
                 "Wet": int(d_wet),
                 "Positives": int(cnt_pos),
@@ -300,25 +362,70 @@ if not df.empty:
             })
         return pd.DataFrame(report_data)
 
+    # --- STAFF PERFORMANCE REPORT (NEWLY ADDED) ---
+    with st.expander("👮 Staff Performance Report", expanded=False):
+        if col_username in df_filtered.columns:
+            staff_group = df_filtered.groupby(col_username)
+            staff_perf = pd.DataFrame()
+
+            # 1. Map Names
+            staff_perf['Name'] = staff_perf.index.map(STAFF_NAMES).fillna(staff_perf.index)
+            # 2. Days Worked
+            staff_perf['Days Worked'] = staff_group[date_col].apply(lambda x: x.dt.date.nunique())
+            # 3. Total Entries
+            staff_perf['Total Entries'] = staff_group[col_username].count()
+            # 4. Positive Houses/Premises (Using calculated column)
+            # Note: For Intra, this is slightly inaccurate if not grouped by premise first, but good estimation
+            staff_perf['Positive Found'] = staff_group['pos_house_calc'].apply(lambda x: (x > 0).sum())
+            # 5. Positive Containers
+            staff_perf['Positive Containers'] = staff_group['pos_cont_calc'].sum()
+            # 6. Container Index
+            total_searched = staff_group['wet_cont_calc'].sum()
+            staff_perf['Container Index'] = (staff_perf['Positive Containers'] / total_searched.replace(0, 1) * 100).round(2)
+            # 7. Larvae Entries
+            staff_perf['Larvae ID Entries'] = staff_group['has_larvae_entry'].sum()
+
+            # Formatting
+            staff_perf = staff_perf.reset_index()
+            staff_perf.index = staff_perf.index + 1
+            staff_perf.index.name = 'S.No'
+            staff_perf = staff_perf.reset_index()
+
+            # Display
+            final_cols_staff = ['S.No', 'Name', 'Days Worked', 'Total Entries', 'Positive Found', 'Positive Containers', 'Container Index', 'Larvae ID Entries']
+            staff_final = staff_perf[[c for c in final_cols_staff if c in staff_perf.columns]]
+            
+            st.dataframe(staff_final, use_container_width=True)
+            
+            st.download_button(
+                label="Download Staff Performance Excel",
+                data=to_excel(staff_final),
+                file_name="Staff_Performance.xlsx"
+            )
+        else:
+            st.warning("Username column not found for staff report.")
+
     # --- G. MONTHLY REPORT ---
     with st.expander("📅 Monthly Report Generator", expanded=False):
         if date_col:
-            df_report = df.copy()
+            df_report = df.copy() # Use raw data for full reports usually
             df_report[date_col] = pd.to_datetime(df_report[date_col])
-            df_report['Month_Year'] = df_report[date_col].dt.strftime('%Y-%m')
-            
-            # Explicit Calc Columns
+            # Recalculate helpers on raw data
             df_report['pos_house_calc'] = pd.to_numeric(df_report[col_pos_house_raw], errors='coerce').fillna(0) if col_pos_house_raw in df_report.columns else 0
             df_report['pos_cont_calc'] = pd.to_numeric(df_report[col_pos_cont_raw], errors='coerce').fillna(0) if col_pos_cont_raw in df_report.columns else 0
             df_report['wet_cont_calc'] = pd.to_numeric(df_report[col_wet_cont_raw], errors='coerce').fillna(0) if col_wet_cont_raw in df_report.columns else 0
             df_report['dry_cont_calc'] = pd.to_numeric(df_report[col_dry_cont_raw], errors='coerce').fillna(0) if col_dry_cont_raw in df_report.columns else 0
-
+            
+            df_report['Month_Year'] = df_report[date_col].dt.strftime('%Y-%m')
+            
             available_months = sorted(df_report['Month_Year'].unique(), reverse=True)
             selected_month = st.selectbox("Select Month to Generate Report:", available_months)
             
             if selected_month:
                 df_month = df_report[df_report['Month_Year'] == selected_month].copy()
-                st.dataframe(generate_report_df(df_month, selected_month), hide_index=True, use_container_width=True)
+                rep_df = generate_report_df(df_month, selected_month)
+                st.dataframe(rep_df, hide_index=True, use_container_width=True)
+                st.download_button("Download Monthly Excel", to_excel(rep_df), "Monthly_Report.xlsx")
 
     # --- G2. FORTNIGHT REPORT ---
     with st.expander("📆 Fortnight Report Generator", expanded=False):
@@ -326,18 +433,16 @@ if not df.empty:
             df_ft = df.copy()
             df_ft[date_col] = pd.to_datetime(df_ft[date_col])
             
-            # Explicit Calc Columns
+            # Recalculate helpers on raw data
             df_ft['pos_house_calc'] = pd.to_numeric(df_ft[col_pos_house_raw], errors='coerce').fillna(0) if col_pos_house_raw in df_ft.columns else 0
             df_ft['pos_cont_calc'] = pd.to_numeric(df_ft[col_pos_cont_raw], errors='coerce').fillna(0) if col_pos_cont_raw in df_ft.columns else 0
             df_ft['wet_cont_calc'] = pd.to_numeric(df_ft[col_wet_cont_raw], errors='coerce').fillna(0) if col_wet_cont_raw in df_ft.columns else 0
             df_ft['dry_cont_calc'] = pd.to_numeric(df_ft[col_dry_cont_raw], errors='coerce').fillna(0) if col_dry_cont_raw in df_ft.columns else 0
 
-            # Label Logic: 1-15 is First Half, 16+ is Second Half
             df_ft['Month_Str'] = df_ft[date_col].dt.strftime('%B %Y')
             df_ft['Day'] = df_ft[date_col].dt.day
             df_ft['Fortnight_Label'] = df_ft.apply(lambda x: f"First Half {x['Month_Str']}" if x['Day'] <= 15 else f"Second Half {x['Month_Str']}", axis=1)
             
-            # Sort options chronologically
             df_ft = df_ft.sort_values(by=date_col, ascending=False)
             available_fortnights = df_ft['Fortnight_Label'].unique()
             
@@ -345,7 +450,9 @@ if not df.empty:
             
             if selected_ft:
                 df_selected_ft = df_ft[df_ft['Fortnight_Label'] == selected_ft].copy()
-                st.dataframe(generate_report_df(df_selected_ft, selected_ft), hide_index=True, use_container_width=True)
+                ft_rep_df = generate_report_df(df_selected_ft, selected_ft)
+                st.dataframe(ft_rep_df, hide_index=True, use_container_width=True)
+                st.download_button("Download Fortnightly Excel", to_excel(ft_rep_df), "Fortnightly_Report.xlsx")
 
     # --- H. VISUALS ---
     if show_graphs:
