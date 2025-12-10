@@ -108,12 +108,8 @@ if not df.empty:
     col_street = col_map_lower.get('streetname') or col_map_lower.get('street_name')
     col_premises = col_map_lower.get('premises') or col_map_lower.get('premise') or col_map_lower.get('location')
     
-    # --- DEFINITIONS ---
-    # col_pos_house_raw is used to check if a house/premise is positive (>0)
     col_pos_house_raw = "Among_the_wet_containers_how_"  
-    # col_pos_cont_raw is the NUMERATOR for CI and BI (Total Positive Containers)
     col_pos_cont_raw = "Among_the_wet_containers_how_"  
-    # col_wet_cont_raw is the DENOMINATOR for CI (Total Wet Containers)
     col_wet_cont_raw = "Number_of_wet_containers_found" 
 
     # --- UNIVERSAL DATE LOGIC ---
@@ -132,7 +128,7 @@ if not df.empty:
     st.sidebar.subheader("Filters")
     df_filtered = df.copy()
 
-    # Apply Date Filter (Universally)
+    # Apply Date Filter
     if date_col:
         df_filtered[date_col] = pd.to_datetime(df_filtered[date_col])
         min_date = df_filtered[date_col].min().date()
@@ -147,7 +143,7 @@ if not df.empty:
     else:
         st.warning("⚠️ CRITICAL: Could not find a column named 'Date'. Check your Kobo form.")
 
-    # 2. Explicit Zone/Subzone Filters
+    # Explicit Zone/Subzone Filters
     selected_zones = []
     selected_subzones = []
 
@@ -170,7 +166,6 @@ if not df.empty:
             df_filtered = df_filtered[df_filtered[col_street].astype(str).isin(selected_streets)]
 
     # --- C. PRE-CALCULATIONS ---
-    # We load the data from the raw columns into calculation columns
     if col_pos_house_raw in df_filtered.columns:
         df_filtered['pos_house_calc'] = pd.to_numeric(df_filtered[col_pos_house_raw], errors='coerce').fillna(0)
     
@@ -182,6 +177,13 @@ if not df.empty:
 
     # --- D. LOGIC BRANCHING ---
     
+    # Initialize variables to avoid scope errors
+    display_count = 0
+    positive_count = 0
+    hi_val = 0
+    ci_val = 0
+    bi_val = 0
+
     if selected_key == 'inside':
         if col_premises and date_col:
             # 1. Create Key Part 1: Date String
@@ -195,9 +197,9 @@ if not df.empty:
             
             # 4. Group by this Unique ID
             agg_dict = {
-                'pos_house_calc': 'max',  # If >0 anywhere, premise is positive
-                'pos_cont_calc': 'sum',   # Sum of all positive containers
-                'wet_cont_calc': 'sum'    # Sum of all wet containers
+                'pos_house_calc': 'max',
+                'pos_cont_calc': 'sum',
+                'wet_cont_calc': 'sum'
             }
             if col_zone in df_filtered.columns:
                 agg_dict[col_zone] = 'first' 
@@ -206,63 +208,58 @@ if not df.empty:
             
             # 5. Calculate Metrics (INTRA)
             total_unique_premises = df_grouped['unique_premise_id'].nunique()
-            
-            # Premises Index (PI)
             positive_premises_count = (df_grouped['pos_house_calc'] > 0).sum()
+            
             hi_val = (positive_premises_count / total_unique_premises * 100) if total_unique_premises > 0 else 0
             
-            # Container Index (CI)
             total_pos_cont = df_grouped['pos_cont_calc'].sum()
             total_wet_cont = df_grouped['wet_cont_calc'].sum()
             ci_val = (total_pos_cont / total_wet_cont * 100) if total_wet_cont > 0 else 0
             
-            # Breteau Index (BI)
-            # Denominator is UNIQUE PREMISES
             bi_val = (total_pos_cont / total_unique_premises * 100) if total_unique_premises > 0 else 0
             
             df_for_graphs = df_grouped.copy()
             df_for_graphs['is_positive_premise'] = (df_for_graphs['pos_house_calc'] > 0).astype(int)
             
             display_count = total_unique_premises
+            positive_count = positive_premises_count
 
         else:
             st.warning("⚠️ Could not find 'Premises' or 'Date' column.")
-            display_count = len(df_filtered)
-            hi_val, ci_val, bi_val = 0, 0, 0
             df_for_graphs = df_filtered.copy()
 
     else:
         # --- PERI-AIRPORT (STANDARD) ---
         display_count = len(df_filtered)
-        # House is positive if 'Among_the_wet_containers_how_' > 0
         df_filtered['is_positive_house'] = df_filtered['pos_house_calc'].apply(lambda x: 1 if x > 0 else 0)
         
+        positive_count = df_filtered['is_positive_house'].sum()
+        
         if display_count > 0:
-            # House Index
-            hi_val = (df_filtered['is_positive_house'].sum() / display_count) * 100
+            hi_val = (positive_count / display_count) * 100
             
-            # Container Index
             total_pos_cont = df_filtered['pos_cont_calc'].sum()
             total_wet_cont = df_filtered['wet_cont_calc'].sum()
             ci_val = (total_pos_cont / total_wet_cont * 100) if total_wet_cont > 0 else 0
             
-            # Breteau Index
-            # Denominator is TOTAL ENTRIES
             bi_val = (total_pos_cont / display_count * 100)
-        else:
-            hi_val, ci_val, bi_val = 0, 0, 0
             
         df_for_graphs = df_filtered.copy()
 
     # --- E. TOP METRICS DISPLAY ---
+    # Metric Labels
     label_hi = "Premises Index (PI)" if selected_key == 'inside' else "House Index (HI)"
     label_entries = "Unique Premises" if selected_key == 'inside' else "Total Entries"
+    label_positive = "Positive Premises" if selected_key == 'inside' else "Positive Houses"
     
-    m1, m2, m3, m4 = st.columns(4)
+    # NEW: 5 Columns to include the Positive Count
+    m1, m2, m3, m4, m5 = st.columns(5)
+    
     m1.metric(label_entries, display_count)
-    m2.metric(label_hi, f"{hi_val:.2f}")
-    m3.metric("Container Index (CI)", f"{ci_val:.2f}")
-    m4.metric("Breteau Index (BI)", f"{bi_val:.2f}")
+    m2.metric(label_positive, positive_count)  # <--- NEW ADDITION
+    m3.metric(label_hi, f"{hi_val:.2f}")
+    m4.metric("Container Index (CI)", f"{ci_val:.2f}")
+    m5.metric("Breteau Index (BI)", f"{bi_val:.2f}")
 
     # --- F. GRAPHICAL ANALYSIS ---
     st.divider()
@@ -292,10 +289,7 @@ if not df.empty:
             else:
                 g['HI'] = (g['is_positive_house'] / g['Denominator']) * 100
                 
-            # CI Calculation
             g['CI'] = (g['pos_cont_calc'] / g['wet_cont_calc'].replace(0, 1)) * 100 
-            
-            # BI Calculation
             g['BI'] = (g['pos_cont_calc'] / g['Denominator']) * 100
             
             return g.reset_index()
