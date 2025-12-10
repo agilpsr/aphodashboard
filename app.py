@@ -7,11 +7,13 @@ import re
 import urllib.parse
 import folium
 from streamlit_folium import st_folium
+import xlsxwriter
 
 # --- 1. SETUP PAGE CONFIGURATION ---
 st.set_page_config(page_title="Larvae Surveillance Dashboard", layout="wide")
 
 # --- STAFF NAME MAPPING ---
+# Ensure all keys are lowercase for better matching
 STAFF_NAMES = {
     'abhiguptak': 'Abhishek Gupta',
     'arunhealthinspector': 'Arun',
@@ -66,7 +68,7 @@ def load_kobo_data(url):
         )
         return df
     except Exception as e:
-        st.error(f"Error loading data: {e}")
+        # st.error(f"Error loading data: {e}") # Suppress error to avoid clutter
         return pd.DataFrame()
 
 # --- 4. NAVIGATION & CONFIGURATION ---
@@ -139,9 +141,7 @@ if not df.empty:
     col_wet_cont_raw = "Number_of_wet_containers_found" if "Number_of_wet_containers_found" in df.columns else "Number_of_wet_containers_"
     col_dry_cont_raw = "number_of_dry_contai_tentially_hold_water"
     
-    # Larvae entry check
-    col_larvae_id = 'Larva_species_identified'
-
+    # Coordinates
     col_lat = "_Location_latitude"
     col_lon = "_Location_longitude"
 
@@ -208,12 +208,6 @@ if not df.empty:
         df_filtered['dry_cont_calc'] = pd.to_numeric(df_filtered[col_dry_cont_raw], errors='coerce').fillna(0)
     else:
         df_filtered['dry_cont_calc'] = 0
-        
-    # Check for Larvae ID entry
-    if col_larvae_id in df_filtered.columns:
-        df_filtered['has_larvae_entry'] = df_filtered[col_larvae_id].notna().astype(int)
-    else:
-        df_filtered['has_larvae_entry'] = 0
 
     # --- D. LOGIC BRANCHING ---
     display_count, positive_count, hi_val, ci_val, bi_val = 0, 0, 0, 0, 0
@@ -362,28 +356,46 @@ if not df.empty:
             })
         return pd.DataFrame(report_data)
 
-    # --- STAFF PERFORMANCE REPORT ---
+    # --- STAFF PERFORMANCE REPORT (UPDATED) ---
     with st.expander("👮 Staff Performance Report", expanded=False):
         if col_username in df_filtered.columns:
+            # 1. Calculate Surveillance Metrics
             staff_group = df_filtered.groupby(col_username)
             staff_perf = pd.DataFrame()
 
-            # 1. Map Names (Fixed Logic to avoid TypeError)
-            staff_perf['Name'] = [STAFF_NAMES.get(user, user) for user in staff_perf.index]
-
-            # 2. Days Worked
+            # Robust mapping: lower case and strip whitespace
+            staff_perf['Name'] = [STAFF_NAMES.get(str(user).strip().lower(), str(user)) for user in staff_perf.index]
+            
             staff_perf['Days Worked'] = staff_group[date_col].apply(lambda x: x.dt.date.nunique())
-            # 3. Total Entries
             staff_perf['Total Entries'] = staff_group[col_username].count()
-            # 4. Positive Houses/Premises (Using calculated column)
             staff_perf['Positive Found'] = staff_group['pos_house_calc'].apply(lambda x: (x > 0).sum())
-            # 5. Positive Containers
             staff_perf['Positive Containers'] = staff_group['pos_cont_calc'].sum()
-            # 6. Container Index
+            
             total_searched = staff_group['wet_cont_calc'].sum()
             staff_perf['Container Index'] = (staff_perf['Positive Containers'] / total_searched.replace(0, 1) * 100).round(2)
-            # 7. Larvae Entries
-            staff_perf['Larvae ID Entries'] = staff_group['has_larvae_entry'].sum()
+            
+            # 2. Fetch & Merge Larvae ID Data (Fixing Sync Issue)
+            try:
+                with st.spinner("Syncing Larvae ID Data..."):
+                    df_id_sync = load_kobo_data(current_config['id_url'])
+                    
+                    if not df_id_sync.empty and col_username in df_id_sync.columns:
+                        # Clean usernames in ID data to match Surveillance data
+                        df_id_sync['clean_user'] = df_id_sync[col_username].astype(str).str.strip().str.lower()
+                        
+                        # Count entries by user
+                        id_counts = df_id_sync.groupby('clean_user').size().rename('Larvae ID Entries')
+                        
+                        # Create temporary index for mapping
+                        temp_index = staff_perf.index.astype(str).str.strip().str.lower()
+                        
+                        # Map the counts
+                        staff_perf['Larvae ID Entries'] = temp_index.map(id_counts).fillna(0).astype(int)
+                    else:
+                        staff_perf['Larvae ID Entries'] = 0
+            except Exception as e:
+                staff_perf['Larvae ID Entries'] = 0
+                st.warning("Could not sync Larvae ID data. Showing 0.")
 
             # Formatting
             staff_perf = staff_perf.reset_index()
@@ -402,13 +414,18 @@ if not df.empty:
                 data=to_excel(staff_final),
                 file_name="Staff_Performance.xlsx"
             )
+
+            # Debugging Help
+            with st.expander("Debug: Check Raw Usernames"):
+                st.write("If names are still numbers, check what the 'username' column actually contains:")
+                st.write(df_filtered[col_username].unique())
         else:
             st.warning("Username column not found for staff report.")
 
     # --- G. MONTHLY REPORT ---
     with st.expander("📅 Monthly Report Generator", expanded=False):
         if date_col:
-            df_report = df.copy() # Use raw data for full reports usually
+            df_report = df.copy() 
             df_report[date_col] = pd.to_datetime(df_report[date_col])
             # Recalculate helpers on raw data
             df_report['pos_house_calc'] = pd.to_numeric(df_report[col_pos_house_raw], errors='coerce').fillna(0) if col_pos_house_raw in df_report.columns else 0
