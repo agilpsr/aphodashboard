@@ -3,7 +3,8 @@ import pandas as pd
 import requests
 import io
 import plotly.express as px
-import pydeck as pdk
+import folium
+from streamlit_folium import st_folium
 import re
 import urllib.parse
 
@@ -21,6 +22,7 @@ if not check_password():
 @st.cache_data(ttl=300)
 def load_kobo_data(url):
     try:
+        # NOTE: Ensure secrets exist or replace with string for local testing
         token = st.secrets["KOBO_TOKEN"]
         headers = {"Authorization": f"Token {token}"}
         response = requests.get(url, headers=headers)
@@ -86,9 +88,11 @@ def get_thumbnail_url(original_url):
 @st.dialog("Microscopic View", width="large")
 def show_image_popup(row_data):
     st.subheader(f"{row_data['Genus']} ({row_data['Species']})")
+    
     c1, c2 = st.columns(2)
     c1.info(f"📍 **Address:** {row_data['Address']}")
     c2.warning(f"📅 **Date:** {row_data['Date']}")
+    
     if row_data['Original Image URL'] and str(row_data['Original Image URL']).startswith('http'):
         st.image(row_data['Original Image URL'], caption="Microscopic View (Full Resolution)", use_container_width=True)
     else:
@@ -168,7 +172,6 @@ if not df.empty:
             df_filtered['premise_clean'] = df_filtered[col_premises].apply(normalize_string)
             df_filtered['unique_premise_id'] = df_filtered['date_str_only'] + "_" + df_filtered['premise_clean']
             
-            # Use 'first' for lat/lon to keep them in the grouped data
             agg_dict = {
                 'pos_house_calc': 'max', 
                 'pos_cont_calc': 'sum', 
@@ -177,6 +180,8 @@ if not df.empty:
             if col_zone in df_filtered.columns: agg_dict[col_zone] = 'first'
             if col_lat in df_filtered.columns: agg_dict[col_lat] = 'first'
             if col_lon in df_filtered.columns: agg_dict[col_lon] = 'first'
+            # Keep premises name for tooltip
+            if col_premises in df_filtered.columns: agg_dict[col_premises] = 'first'
             
             df_grouped = df_filtered.groupby('unique_premise_id', as_index=False).agg(agg_dict)
             
@@ -263,65 +268,56 @@ if not df.empty:
             if selected_key == 'peri' and show_subzone_graph and col_subzone in df_for_graphs.columns:
                 st.plotly_chart(plot_metric_bar(get_grouped_data(col_subzone), col_subzone, 'BI', "Breteau Index by SubZone", 'BI'), use_container_width=True)
 
-    # --- G. GEO SPATIAL MAPPING (NEW) ---
+    # --- G. GEO SPATIAL MAPPING (FOLIUM) ---
     st.divider()
-    with st.expander("🌍 View Geo-Spatial Mapping", expanded=False):
+    with st.expander("🌍 View Geo-Spatial Mapping (Map)", expanded=False):
         if col_lat in df_for_graphs.columns and col_lon in df_for_graphs.columns:
-            # Drop invalid coordinates
-            map_data = df_for_graphs.dropna(subset=[col_lat, col_lon]).copy()
+            # Clean data for mapping
+            map_df = df_for_graphs.dropna(subset=[col_lat, col_lon]).copy()
             
-            if not map_data.empty:
-                # --- COLOR LOGIC ---
-                # We need RGBA colors for PyDeck. 
-                # Green (0): [0, 255, 0, 128] (50% transparent)
-                # Red (1+):  [255, 0, 0, alpha] where alpha increases with count
-                
-                def get_color(val):
-                    val = int(val)
-                    if val == 0:
-                        return [0, 255, 0, 128] # Green, 50% opacity
+            if not map_df.empty:
+                # 1. Create Base Map centered on average location
+                avg_lat = map_df[col_lat].mean()
+                avg_lon = map_df[col_lon].mean()
+                m = folium.Map(location=[avg_lat, avg_lon], zoom_start=13)
+
+                # 2. Add Points
+                for idx, row in map_df.iterrows():
+                    larvae_count = int(row['pos_house_calc'])
+                    
+                    # COLOR LOGIC:
+                    # Green (50% transparent) for 0
+                    # Red (Increasing opacity) for 1+
+                    if larvae_count == 0:
+                        color = '#00ff00' # Bright Green
+                        fill_opacity = 0.5
                     else:
-                        # Logic: Start at 100 opacity, max at 255
-                        # Cap the multiplier so huge numbers don't break logic
-                        alpha = min(255, 100 + (val * 30)) 
-                        return [255, 0, 0, int(alpha)] # Red, variable opacity
+                        color = '#ff0000' # Red
+                        # Opacity logic: Starts at 0.4, caps at 1.0 based on count
+                        fill_opacity = min(1.0, 0.4 + (larvae_count * 0.1))
 
-                map_data['color'] = map_data['pos_house_calc'].apply(get_color)
-                
-                # --- PYDECK LAYER ---
-                layer = pdk.Layer(
-                    "ScatterplotLayer",
-                    map_data,
-                    get_position=[col_lon, col_lat],
-                    get_color="color",
-                    get_radius=100,  # Radius in meters
-                    pickable=True,
-                    opacity=1.0,     # We handle opacity individually in color
-                    stroked=True,
-                    filled=True,
-                    radius_min_pixels=5,
-                    radius_max_pixels=20,
-                )
+                    # Tooltip Text
+                    popup_text = f"Larvae Found: {larvae_count}"
+                    if selected_key == 'intra' and col_premises in row:
+                        popup_text = f"{row[col_premises]}<br>Larvae: {larvae_count}"
 
-                # --- VIEW STATE ---
-                # Center map on the average data point
-                view_state = pdk.ViewState(
-                    latitude=map_data[col_lat].mean(),
-                    longitude=map_data[col_lon].mean(),
-                    zoom=13,
-                    pitch=0,
-                )
+                    folium.CircleMarker(
+                        location=[row[col_lat], row[col_lon]],
+                        radius=6,
+                        color=color,
+                        fill=True,
+                        fill_color=color,
+                        fill_opacity=fill_opacity,
+                        popup=popup_text,
+                        tooltip=popup_text
+                    ).add_to(m)
 
-                st.pydeck_chart(pdk.Deck(
-                    map_style='mapbox://styles/mapbox/light-v9',
-                    initial_view_state=view_state,
-                    layers=[layer],
-                    tooltip={"text": "Positives: {pos_house_calc}"}
-                ))
+                # 3. Render Map
+                st_folium(m, width=None, height=500)
             else:
-                st.warning("No valid GPS coordinates found in filtered data.")
+                st.warning("No GPS coordinates available in filtered data.")
         else:
-            st.warning(f"Columns {col_lat} and {col_lon} not found in dataset.")
+            st.warning("GPS columns not found in dataset.")
 
     # --- H. LARVAE IDENTIFICATION ---
     st.divider()
