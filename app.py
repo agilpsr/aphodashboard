@@ -13,7 +13,7 @@ import xlsxwriter
 st.set_page_config(page_title="Larvae Surveillance Dashboard", layout="wide")
 
 # --- STAFF NAME MAPPING ---
-# Ensure all keys are lowercase for better matching
+# Dictionary keys must be lowercase to ensure matching works
 STAFF_NAMES = {
     'abhiguptak': 'Abhishek Gupta',
     'arunhealthinspector': 'Arun',
@@ -50,7 +50,6 @@ if not check_password():
 @st.cache_data(ttl=300)
 def load_kobo_data(url):
     try:
-        # NOTE: Ensure secrets exist or replace with string for local testing
         if "KOBO_TOKEN" in st.secrets:
             token = st.secrets["KOBO_TOKEN"]
         else:
@@ -68,7 +67,6 @@ def load_kobo_data(url):
         )
         return df
     except Exception as e:
-        # st.error(f"Error loading data: {e}") # Suppress error to avoid clutter
         return pd.DataFrame()
 
 # --- 4. NAVIGATION & CONFIGURATION ---
@@ -356,17 +354,26 @@ if not df.empty:
             })
         return pd.DataFrame(report_data)
 
-    # --- STAFF PERFORMANCE REPORT (UPDATED) ---
+    # --- STAFF PERFORMANCE REPORT (FIXED) ---
     with st.expander("👮 Staff Performance Report", expanded=False):
         if col_username in df_filtered.columns:
-            # 1. Calculate Surveillance Metrics
+            # 1. Group By Username
             staff_group = df_filtered.groupby(col_username)
-            staff_perf = pd.DataFrame()
-
-            # Robust mapping: lower case and strip whitespace
-            staff_perf['Name'] = [STAFF_NAMES.get(str(user).strip().lower(), str(user)) for user in staff_perf.index]
             
-            staff_perf['Days Worked'] = staff_group[date_col].apply(lambda x: x.dt.date.nunique())
+            # 2. CREATE DATAFRAME WITH FIRST METRIC
+            # This forces the DataFrame to exist with Usernames as the Index
+            staff_perf = pd.DataFrame(staff_group[date_col].apply(lambda x: x.dt.date.nunique()))
+            staff_perf.columns = ['Days Worked']
+            
+            # 3. NOW MAP NAMES (Since index exists)
+            def get_staff_name(u):
+                # Helper to match name or return raw
+                key = str(u).strip().lower()
+                return STAFF_NAMES.get(key, u)
+            
+            staff_perf['Name'] = staff_perf.index.map(get_staff_name)
+
+            # 4. Calculate Other Metrics
             staff_perf['Total Entries'] = staff_group[col_username].count()
             staff_perf['Positive Found'] = staff_group['pos_house_calc'].apply(lambda x: (x > 0).sum())
             staff_perf['Positive Containers'] = staff_group['pos_cont_calc'].sum()
@@ -374,28 +381,22 @@ if not df.empty:
             total_searched = staff_group['wet_cont_calc'].sum()
             staff_perf['Container Index'] = (staff_perf['Positive Containers'] / total_searched.replace(0, 1) * 100).round(2)
             
-            # 2. Fetch & Merge Larvae ID Data (Fixing Sync Issue)
+            # 5. Fetch & Merge Larvae ID Data
             try:
                 with st.spinner("Syncing Larvae ID Data..."):
                     df_id_sync = load_kobo_data(current_config['id_url'])
                     
                     if not df_id_sync.empty and col_username in df_id_sync.columns:
-                        # Clean usernames in ID data to match Surveillance data
                         df_id_sync['clean_user'] = df_id_sync[col_username].astype(str).str.strip().str.lower()
-                        
-                        # Count entries by user
                         id_counts = df_id_sync.groupby('clean_user').size().rename('Larvae ID Entries')
                         
-                        # Create temporary index for mapping
+                        # Map using lowercase index
                         temp_index = staff_perf.index.astype(str).str.strip().str.lower()
-                        
-                        # Map the counts
                         staff_perf['Larvae ID Entries'] = temp_index.map(id_counts).fillna(0).astype(int)
                     else:
                         staff_perf['Larvae ID Entries'] = 0
             except Exception as e:
                 staff_perf['Larvae ID Entries'] = 0
-                st.warning("Could not sync Larvae ID data. Showing 0.")
 
             # Formatting
             staff_perf = staff_perf.reset_index()
