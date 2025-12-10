@@ -164,15 +164,15 @@ if not df.empty:
         # --- INTRA-AIRPORT UNIQUE ID LOGIC ---
         if col_premises and date_col:
             # 1. Create the EXACT Looker Studio Key: Date + Premises
-            # We strip time from date, and strip whitespace from premises to be safe
             df_filtered['date_str_only'] = df_filtered[date_col].dt.date.astype(str)
-            df_filtered['premise_clean'] = df_filtered[col_premises].astype(str).str.strip().str.upper()
+            
+            # UPDATED CLEANING: Lowercase + remove double spaces + strip
+            # This turns "Terminal  1" (two spaces) into "terminal 1" (one space)
+            df_filtered['premise_clean'] = df_filtered[col_premises].astype(str).str.lower().str.replace(r'\s+', ' ', regex=True).str.strip()
+            
             df_filtered['unique_premise_id'] = df_filtered['date_str_only'] + "_" + df_filtered['premise_clean']
             
-            # 2. Group by this Unique ID to consolidate multiple entries for the same place/day
-            # Logic: 
-            # - If ANY entry for this ID is positive, the premise is positive (max)
-            # - We SUM all containers found across entries (assuming different spots in same premise)
+            # 2. Group by this Unique ID
             agg_dict = {
                 'pos_house_calc': 'max',
                 'pos_cont_calc': 'sum',
@@ -183,26 +183,25 @@ if not df.empty:
                 
             df_grouped = df_filtered.groupby('unique_premise_id', as_index=False).agg(agg_dict)
             
-            # 3. Calculate Metrics on the GROUPED (Unique) Data
+            # 3. Calculate Metrics
             total_unique_premises = df_grouped['unique_premise_id'].nunique()
             
             # Premises Index (PI)
             positive_premises_count = (df_grouped['pos_house_calc'] > 0).sum()
             hi_val = (positive_premises_count / total_unique_premises * 100) if total_unique_premises > 0 else 0
             
-            # Container Index (CI) - Std Calculation
+            # Container Index (CI)
             total_pos_cont = df_grouped['pos_cont_calc'].sum()
             total_wet_cont = df_grouped['wet_cont_calc'].sum()
             ci_val = (total_pos_cont / total_wet_cont * 100) if total_wet_cont > 0 else 0
             
-            # Breteau Index (BI) - Denominator is UNIQUE PREMISES
+            # Breteau Index (BI)
             bi_val = (total_pos_cont / total_unique_premises * 100) if total_unique_premises > 0 else 0
             
             # Prepare data for graphs
             df_for_graphs = df_grouped.copy()
             df_for_graphs['is_positive_premise'] = (df_for_graphs['pos_house_calc'] > 0).astype(int)
             
-            # For display purposes
             display_count = total_unique_premises
 
         else:
@@ -254,9 +253,8 @@ if not df.empty:
             }
             
             # If we are INSIDE, df_for_graphs is already deduped. 
-            # Counting rows = Counting Unique Premises
             if selected_key == 'inside':
-                aggs[groupby_col] = 'count' # This counts the unique premises in that zone
+                aggs[groupby_col] = 'count' # This counts the unique premises
                 aggs['is_positive_premise'] = 'sum'
             else:
                 aggs[groupby_col] = 'count'
@@ -274,10 +272,9 @@ if not df.empty:
             
             return g.reset_index()
 
-        # --- SECTION 1: HOUSE / PREMISES INDEX ---
+        # --- GRAPH SECTIONS ---
         with st.expander(f"📊 View {label_hi} Graphs"):
             st.info("Vector Density: Percentage of houses/premises found positive.")
-            
             if show_zone_graph and col_zone in df_for_graphs.columns:
                 data_z = get_grouped_data(col_zone)
                 st.plotly_chart(plot_metric_bar(data_z, col_zone, 'HI', f"{label_hi} by Zone", 'HI'), use_container_width=True)
@@ -286,37 +283,28 @@ if not df.empty:
                 if show_subzone_graph and col_subzone in df_for_graphs.columns:
                     data_s = get_grouped_data(col_subzone)
                     st.plotly_chart(plot_metric_bar(data_s, col_subzone, 'HI', f"{label_hi} by SubZone", 'HI'), use_container_width=True)
-                
                 if col_street in df_for_graphs.columns:
                     st.plotly_chart(plot_metric_bar(get_grouped_data(col_street), col_street, 'HI', f"{label_hi} by Street", 'HI'), use_container_width=True)
 
-        # --- SECTION 2: CONTAINER INDEX ---
         with st.expander("📊 View Container Index (CI) Graphs"):
             st.info("Breeding Preference: Percentage of wet containers found positive.")
-
             if show_zone_graph and col_zone in df_for_graphs.columns:
                 data_z = get_grouped_data(col_zone)
                 st.plotly_chart(plot_metric_bar(data_z, col_zone, 'CI', "Container Index by Zone", 'CI'), use_container_width=True)
-            
             if selected_key == 'outside' and show_subzone_graph and col_subzone in df_for_graphs.columns:
                 data_s = get_grouped_data(col_subzone)
                 st.plotly_chart(plot_metric_bar(data_s, col_subzone, 'CI', "Container Index by SubZone", 'CI'), use_container_width=True)
-            
             if selected_key == 'outside' and col_street in df_for_graphs.columns:
                 st.plotly_chart(plot_metric_bar(get_grouped_data(col_street), col_street, 'CI', "Container Index by Street", 'CI'), use_container_width=True)
 
-        # --- SECTION 3: BRETEAU INDEX ---
         with st.expander("📊 View Breteau Index (BI) Graphs"):
             st.info("Breeding Risk: Number of positive containers per 100 houses/premises.")
-
             if show_zone_graph and col_zone in df_for_graphs.columns:
                 data_z = get_grouped_data(col_zone)
                 st.plotly_chart(plot_metric_bar(data_z, col_zone, 'BI', "Breteau Index by Zone", 'BI'), use_container_width=True)
-            
             if selected_key == 'outside' and show_subzone_graph and col_subzone in df_for_graphs.columns:
                 data_s = get_grouped_data(col_subzone)
                 st.plotly_chart(plot_metric_bar(data_s, col_subzone, 'BI', "Breteau Index by SubZone", 'BI'), use_container_width=True)
-
             if selected_key == 'outside' and col_street in df_for_graphs.columns:
                 st.plotly_chart(plot_metric_bar(get_grouped_data(col_street), col_street, 'BI', "Breteau Index by Street", 'BI'), use_container_width=True)
 
@@ -324,6 +312,20 @@ if not df.empty:
     st.divider()
     with st.expander("📂 View Raw Data Table"):
         st.dataframe(df_filtered)
+
+    # --- G. DEBUG TOOL (New) ---
+    if selected_key == 'inside':
+        st.divider()
+        with st.expander("🐞 Debug Tool (Check Unique IDs)"):
+            st.write("Download this file to check which IDs are being counted.")
+            csv = df_grouped.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                "Download Processed Data",
+                csv,
+                "debug_unique_premises.csv",
+                "text/csv",
+                key='download-csv'
+            )
 
 else:
     st.info("No data found. Please check your Kobo connection or selection.")
