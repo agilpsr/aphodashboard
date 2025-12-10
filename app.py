@@ -10,15 +10,7 @@ st.set_page_config(page_title="Larvae Surveillance Dashboard", layout="wide")
 
 # --- 2. PASSWORD PROTECTION (DISABLED) ---
 def check_password():
-    # TEMPORARILY DISABLED AS REQUESTED
     return True
-    
-    # Original logic preserved below for later:
-    # if "password_correct" not in st.session_state:
-    #     st.session_state.password_correct = False
-    # if not st.session_state.password_correct:
-    #     ... (login logic) ...
-    # return True
 
 if not check_password():
     st.stop()
@@ -27,8 +19,6 @@ if not check_password():
 @st.cache_data(ttl=300)
 def load_kobo_data(url):
     try:
-        # NOTE: You might need to remove st.secrets if running locally without them
-        # For now assuming secrets exist or you can replace with string
         token = st.secrets["KOBO_TOKEN"]
         headers = {"Authorization": f"Token {token}"}
         response = requests.get(url, headers=headers)
@@ -55,7 +45,7 @@ SECTION_CONFIG = {
     'intra': {
         'title': 'Intra-Airport Larvae Surveillance',
         'surv_url': 'https://kf.kobotoolbox.org/api/v2/assets/aEdcSxvmrBuXBmzXNECtjr/export-settings/esgYdEaEk79Y69k56abNGdW/data.csv',
-        # UPDATED URL HERE:
+        # UPDATED URL
         'id_url': 'https://kf.kobotoolbox.org/api/v2/assets/anN9HTYvmLRTorb7ojXs5A/export-settings/esLiqyb8KpPfeMX4ZnSoXSm/data.csv'
     }
 }
@@ -87,17 +77,14 @@ def normalize_string(text):
 # --- HELPER: IMAGE POPUP DIALOG ---
 @st.dialog("Microscopic View", width="large")
 def show_image_popup(row_data):
-    # This creates the "Pop up" effect with details
     st.subheader(f"{row_data['Genus']} ({row_data['Species']})")
     
-    # Metadata in columns (Address, Date)
     c1, c2 = st.columns(2)
     c1.info(f"📍 **Address:** {row_data['Address']}")
     c2.warning(f"📅 **Date:** {row_data['Date']}")
     
-    # The Huge Image (Use_column_width=True makes it fill the popup)
     if row_data['Image URL'] and str(row_data['Image URL']).startswith('http'):
-        st.image(row_data['Image URL'], caption="Microscopic View (8x Zoom)", use_container_width=True)
+        st.image(row_data['Image URL'], caption="Microscopic View (Full Resolution)", use_container_width=True)
     else:
         st.error("Image not available or invalid URL.")
 
@@ -135,7 +122,7 @@ if not df.empty:
         mask = (df_filtered[date_col].dt.date >= start_date) & (df_filtered[date_col].dt.date <= end_date)
         df_filtered = df_filtered.loc[mask]
     else:
-        st.warning("⚠️ CRITICAL: Could not find a column named 'Date'. Check your Kobo form.")
+        st.warning("⚠️ CRITICAL: Could not find a column named 'Date'.")
 
     # Explicit Filters
     selected_zones, selected_subzones = [], []
@@ -277,7 +264,20 @@ if not df.empty:
             col_map_id = {c.lower(): c for c in df_id.columns}
             date_col_id = col_map_id.get('date') or col_map_id.get('today')
             col_address_id = col_map_id.get('address') or col_map_id.get('location') or col_map_id.get('premise') or col_map_id.get('premises') or col_map_id.get('streetname')
-            col_img = "Attach the microscopic image of the larva_URL"
+            
+            # --- FIX FOR IMAGE COLUMN NAME ---
+            # Try exact matches including the space version you noticed
+            possible_img_cols = [
+                "Attach the microscopic image of the larva _URL", # WITH SPACE
+                "Attach the microscopic image of the larva_URL",  # WITHOUT SPACE
+                "image_url", "url"
+            ]
+            col_img = None
+            for c in possible_img_cols:
+                if c in df_id.columns:
+                    col_img = c
+                    break
+            
             col_genus = "Select the Genus:"
             col_species = "Select the Species:"
             
@@ -287,7 +287,7 @@ if not df.empty:
                     mask_id = (df_id[date_col_id].dt.date >= start_date) & (df_id[date_col_id].dt.date <= end_date)
                     df_id = df_id.loc[mask_id]
 
-            # 2. PIE CHART (Genus)
+            # 2. PIE CHART (Genus) - PLACED ABOVE TABLE
             if col_genus in df_id.columns:
                 st.write("#### Genus Distribution")
                 genus_counts = df_id[col_genus].value_counts().reset_index()
@@ -296,30 +296,27 @@ if not df.empty:
                 st.plotly_chart(fig_pie, use_container_width=True)
 
             # 3. INTERACTIVE IMAGE TABLE
-            # Construct Display Table
             df_display = pd.DataFrame()
             df_display['Serial No'] = range(1, 1 + len(df_id))
             
-            # Smart Column Fetching
             df_display['Address'] = df_id[col_address_id] if col_address_id in df_id.columns else 'N/A'
             df_display['Date'] = df_id[date_col_id].dt.date if date_col_id in df_id.columns else 'N/A'
             df_display['Genus'] = df_id[col_genus] if col_genus in df_id.columns else 'N/A'
             df_display['Species'] = df_id[col_species] if col_species in df_id.columns else 'N/A'
-            df_display['Image URL'] = df_id[col_img] if col_img in df_id.columns else None
+            df_display['Image URL'] = df_id[col_img] if col_img else None
 
-            # Display the Table with Selection
-            st.info("💡 **Click the checkbox** on the left of any row to view the image in full size.")
+            st.info("💡 **Select a row** to view the **Mega-Size Image**.")
             
             event = st.dataframe(
                 df_display,
                 column_config={
                     "Image URL": st.column_config.ImageColumn(
-                        "Microscopic Image", help="Thumbnail", width="medium" 
+                        "Microscopic Image", help="Preview", width="large" # SET TO MAX WIDTH
                     )
                 },
                 hide_index=True,
                 use_container_width=True,
-                on_select="rerun",  # Triggers reload when clicked
+                on_select="rerun",  
                 selection_mode="single-row"
             )
 
