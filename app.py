@@ -4,6 +4,7 @@ import requests
 import io
 import plotly.express as px
 import re
+import urllib.parse
 
 # --- 1. SETUP PAGE CONFIGURATION ---
 st.set_page_config(page_title="Larvae Surveillance Dashboard", layout="wide")
@@ -45,7 +46,6 @@ SECTION_CONFIG = {
     'intra': {
         'title': 'Intra-Airport Larvae Surveillance',
         'surv_url': 'https://kf.kobotoolbox.org/api/v2/assets/aEdcSxvmrBuXBmzXNECtjr/export-settings/esgYdEaEk79Y69k56abNGdW/data.csv',
-        # UPDATED URL
         'id_url': 'https://kf.kobotoolbox.org/api/v2/assets/anN9HTYvmLRTorb7ojXs5A/export-settings/esLiqyb8KpPfeMX4ZnSoXSm/data.csv'
     }
 }
@@ -74,6 +74,21 @@ def normalize_string(text):
     if pd.isna(text): return ""
     return re.sub(r'[^a-z0-9]', '', str(text).lower())
 
+# --- HELPER: THUMBNAIL GENERATOR (SPEED BOOST) ---
+def get_thumbnail_url(original_url):
+    """
+    Uses wsrv.nl proxy to resize images on the fly.
+    This converts a 5MB image into a 50KB thumbnail for the table.
+    """
+    if not isinstance(original_url, str) or not original_url.startswith("http"):
+        return None
+    
+    # We encode the original URL to safely pass it to the proxy
+    encoded_url = urllib.parse.quote(original_url)
+    
+    # Request a 400px wide version (Good balance of speed vs quality for table)
+    return f"https://wsrv.nl/?url={original_url}&w=400&q=80"
+
 # --- HELPER: IMAGE POPUP DIALOG ---
 @st.dialog("Microscopic View", width="large")
 def show_image_popup(row_data):
@@ -83,8 +98,9 @@ def show_image_popup(row_data):
     c1.info(f"📍 **Address:** {row_data['Address']}")
     c2.warning(f"📅 **Date:** {row_data['Date']}")
     
-    if row_data['Image URL'] and str(row_data['Image URL']).startswith('http'):
-        st.image(row_data['Image URL'], caption="Microscopic View (Full Resolution)", use_container_width=True)
+    # USE THE ORIGINAL (HUGE) URL HERE FOR ZOOMING
+    if row_data['Original Image URL'] and str(row_data['Original Image URL']).startswith('http'):
+        st.image(row_data['Original Image URL'], caption="Microscopic View (Full Resolution)", use_container_width=True)
     else:
         st.error("Image not available or invalid URL.")
 
@@ -260,23 +276,16 @@ if not df.empty:
             df_id = load_kobo_data(current_config['id_url'])
         
         if not df_id.empty:
-            # 1. Filters (Same as main)
+            # 1. Filters
             col_map_id = {c.lower(): c for c in df_id.columns}
             date_col_id = col_map_id.get('date') or col_map_id.get('today')
             col_address_id = col_map_id.get('address') or col_map_id.get('location') or col_map_id.get('premise') or col_map_id.get('premises') or col_map_id.get('streetname')
             
-            # --- FIX FOR IMAGE COLUMN NAME ---
-            # Try exact matches including the space version you noticed
-            possible_img_cols = [
-                "Attach the microscopic image of the larva _URL", # WITH SPACE
-                "Attach the microscopic image of the larva_URL",  # WITHOUT SPACE
-                "image_url", "url"
-            ]
+            # Find Image Column
+            possible_img_cols = ["Attach the microscopic image of the larva _URL", "Attach the microscopic image of the larva_URL", "image_url", "url"]
             col_img = None
             for c in possible_img_cols:
-                if c in df_id.columns:
-                    col_img = c
-                    break
+                if c in df_id.columns: col_img = c; break
             
             col_genus = "Select the Genus:"
             col_species = "Select the Species:"
@@ -287,7 +296,7 @@ if not df.empty:
                     mask_id = (df_id[date_col_id].dt.date >= start_date) & (df_id[date_col_id].dt.date <= end_date)
                     df_id = df_id.loc[mask_id]
 
-            # 2. PIE CHART (Genus) - PLACED ABOVE TABLE
+            # 2. PIE CHART
             if col_genus in df_id.columns:
                 st.write("#### Genus Distribution")
                 genus_counts = df_id[col_genus].value_counts().reset_index()
@@ -298,21 +307,31 @@ if not df.empty:
             # 3. INTERACTIVE IMAGE TABLE
             df_display = pd.DataFrame()
             df_display['Serial No'] = range(1, 1 + len(df_id))
-            
             df_display['Address'] = df_id[col_address_id] if col_address_id in df_id.columns else 'N/A'
             df_display['Date'] = df_id[date_col_id].dt.date if date_col_id in df_id.columns else 'N/A'
             df_display['Genus'] = df_id[col_genus] if col_genus in df_id.columns else 'N/A'
             df_display['Species'] = df_id[col_species] if col_species in df_id.columns else 'N/A'
-            df_display['Image URL'] = df_id[col_img] if col_img else None
+            
+            # THE MAGIC: Create 2 columns for Image (Original vs Thumbnail)
+            if col_img:
+                # Store the HUGE original URL for the popup
+                df_display['Original Image URL'] = df_id[col_img]
+                # Store the TINY proxy URL for the table
+                df_display['Thumbnail'] = df_id[col_img].apply(get_thumbnail_url)
+            else:
+                df_display['Original Image URL'] = None
+                df_display['Thumbnail'] = None
 
             st.info("💡 **Select a row** to view the **Mega-Size Image**.")
             
+            # We hide 'Original Image URL' from the table but keep it in data for popup
             event = st.dataframe(
                 df_display,
                 column_config={
-                    "Image URL": st.column_config.ImageColumn(
-                        "Microscopic Image", help="Preview", width="large" # SET TO MAX WIDTH
-                    )
+                    "Thumbnail": st.column_config.ImageColumn(
+                        "Microscopic Image", help="Thumbnail", width="large"
+                    ),
+                    "Original Image URL": None # Hide this column
                 },
                 hide_index=True,
                 use_container_width=True,
