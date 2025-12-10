@@ -3,6 +3,7 @@ import pandas as pd
 import requests
 import io
 import plotly.express as px
+import re  # Added for the "Nuclear" cleaning
 
 # --- 1. SETUP PAGE CONFIGURATION ---
 st.set_page_config(page_title="Larvae Surveillance Dashboard", layout="wide")
@@ -39,7 +40,6 @@ def load_kobo_data(url):
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         
-        # We assume standard encoding, but we will fix artifacts later
         df = pd.read_csv(
             io.StringIO(response.text), 
             sep=None, 
@@ -91,6 +91,18 @@ def plot_metric_bar(data, x_col, y_col, title, color_col):
     fig.update_traces(texttemplate='%{text:.2f}', textposition='outside')
     fig.update_layout(coloraxis_showscale=False) 
     return fig
+
+# --- HELPER: NUCLEAR CLEANING FUNCTION ---
+def normalize_string(text):
+    """
+    Removes everything that is NOT a letter (a-z) or a number (0-9).
+    Spaces, dashes, and weird garbage symbols are all deleted.
+    Example: "13A - Labor Camp" -> "13alaborcamp"
+    """
+    if pd.isna(text):
+        return ""
+    # Lowercase + Regex replace anything not a-z or 0-9
+    return re.sub(r'[^a-z0-9]', '', str(text).lower())
 
 if not df.empty:
     # --- A. CLEANING & MAPPING ---
@@ -164,24 +176,13 @@ if not df.empty:
     if selected_key == 'inside':
         # --- INTRA-AIRPORT UNIQUE ID LOGIC ---
         if col_premises and date_col:
-            # 1. Create the Key Part 1: Date String
+            # 1. Create Key Part 1: Date String
             df_filtered['date_str_only'] = df_filtered[date_col].dt.date.astype(str)
             
-            # 2. Create Key Part 2: CLEANED Premise Name
-            # Start with lowercase
-            s = df_filtered[col_premises].astype(str).str.lower()
+            # 2. Create Key Part 2: NUCLEAR CLEANED Premise Name
+            # We strip EVERYTHING that is not a-z or 0-9. No spaces, no dashes, no symbols.
+            df_filtered['premise_clean'] = df_filtered[col_premises].apply(normalize_string)
             
-            # FIX: REPLACE THE GARBAGE ENCODING CHARACTERS
-            # We replace "Ã¢Â€Â“" and "â€“" and "–" (en-dash) and "—" (em-dash) with a simple "-"
-            s = s.str.replace('ã¢â€â“', '-', regex=False) 
-            s = s.str.replace('â€“', '-', regex=False)
-            s = s.str.replace('–', '-', regex=False)
-            s = s.str.replace('—', '-', regex=False)
-            
-            # Standardize whitespace (remove double spaces)
-            s = s.str.replace(r'\s+', ' ', regex=True).str.strip()
-            
-            df_filtered['premise_clean'] = s
             df_filtered['unique_premise_id'] = df_filtered['date_str_only'] + "_" + df_filtered['premise_clean']
             
             # 3. Group by this Unique ID
@@ -333,4 +334,3 @@ if not df.empty:
 
 else:
     st.info("No data found. Please check your Kobo connection or selection.")
-
