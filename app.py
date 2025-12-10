@@ -22,11 +22,9 @@ if not check_password():
 @st.cache_data(ttl=300)
 def load_kobo_data(url):
     try:
-        # NOTE: Ensure secrets exist or replace with string for local testing
         if "KOBO_TOKEN" in st.secrets:
             token = st.secrets["KOBO_TOKEN"]
         else:
-            # Fallback for testing if secrets missing
             token = "48554147c1847ddfe4c1c987a54b4196a03c1d9c"
             
         headers = {"Authorization": f"Token {token}"}
@@ -99,34 +97,24 @@ def show_image_popup(row_data):
         st.error("Image not available or invalid URL.")
 
 if not df.empty:
-    # --- A. COLUMN MAPPING (EXACT NAMES FROM USER) ---
-    # We use a lower-case map for flexibility, but prioritize the EXACT strings you gave.
+    # --- A. COLUMN MAPPING ---
     col_map_lower = {c.lower(): c for c in df.columns}
     
-    # Standard Columns
     col_zone = col_map_lower.get('zone')
     col_subzone = col_map_lower.get('subzone')
     col_street = col_map_lower.get('streetname')
     col_username = col_map_lower.get('username')
-    
-    # Intra Specific: "Premises" (Capital P)
     col_premises = "Premises" if "Premises" in df.columns else col_map_lower.get('premises')
     
-    # Metrics Columns (EXACT NAMES)
     col_pos_house_raw = "Among_the_wet_containers_how_"
     col_pos_cont_raw = "Among_the_wet_containers_how_"
     col_wet_cont_raw = "Number_of_wet_containers_found"
     col_dry_cont_raw = "number_of_dry_contai_tentially_hold_water"
     
-    # Geo Columns
     col_lat = "_Location_latitude"
     col_lon = "_Location_longitude"
 
-    # --- DATE LOGIC ---
-    # User confirmed "Date" exists exactly
     date_col = "Date" if "Date" in df.columns else col_map_lower.get('date')
-    
-    # Fallback just in case
     if not date_col:
         for c in ['today', 'start', '_submission_time']:
              if c in col_map_lower: date_col = col_map_lower[c]; break
@@ -138,21 +126,17 @@ if not df.empty:
 
     start_date, end_date = None, None
     if date_col:
-        # Convert to datetime
         df_filtered[date_col] = pd.to_datetime(df_filtered[date_col])
         min_date = df_filtered[date_col].min().date()
         max_date = df_filtered[date_col].max().date()
-        
         d1, d2 = st.sidebar.columns(2)
         start_date = d1.date_input("Start", min_date)
         end_date = d2.date_input("End", max_date)
-        
         mask = (df_filtered[date_col].dt.date >= start_date) & (df_filtered[date_col].dt.date <= end_date)
         df_filtered = df_filtered.loc[mask]
     else:
         st.warning("⚠️ CRITICAL: Could not find a column named 'Date'.")
 
-    # Explicit Filters
     selected_zones, selected_subzones = [], []
     if col_zone and col_zone in df_filtered.columns:
         options = sorted(df_filtered[col_zone].dropna().unique().astype(str))
@@ -169,25 +153,11 @@ if not df.empty:
         selected_streets = st.sidebar.multiselect(f"Filter by Street", options)
         if selected_streets: df_filtered = df_filtered[df_filtered[col_street].astype(str).isin(selected_streets)]
 
-    # --- C. PRE-CALCULATIONS (SAFETY FIRST) ---
-    # Initialize with 0 to prevent crash if column is missing
-    df_filtered['pos_house_calc'] = 0
-    df_filtered['pos_cont_calc'] = 0
-    df_filtered['wet_cont_calc'] = 0
-    df_filtered['dry_cont_calc'] = 0
-
-    # Fill with data if columns exist
-    if col_pos_house_raw in df_filtered.columns:
-        df_filtered['pos_house_calc'] = pd.to_numeric(df_filtered[col_pos_house_raw], errors='coerce').fillna(0)
-    
-    if col_pos_cont_raw in df_filtered.columns:
-        df_filtered['pos_cont_calc'] = pd.to_numeric(df_filtered[col_pos_cont_raw], errors='coerce').fillna(0)
-        
-    if col_wet_cont_raw in df_filtered.columns:
-        df_filtered['wet_cont_calc'] = pd.to_numeric(df_filtered[col_wet_cont_raw], errors='coerce').fillna(0)
-        
-    if col_dry_cont_raw in df_filtered.columns:
-        df_filtered['dry_cont_calc'] = pd.to_numeric(df_filtered[col_dry_cont_raw], errors='coerce').fillna(0)
+    # --- C. PRE-CALCULATIONS (MAIN DF) ---
+    df_filtered['pos_house_calc'] = pd.to_numeric(df_filtered[col_pos_house_raw], errors='coerce').fillna(0) if col_pos_house_raw in df_filtered.columns else 0
+    df_filtered['pos_cont_calc'] = pd.to_numeric(df_filtered[col_pos_cont_raw], errors='coerce').fillna(0) if col_pos_cont_raw in df_filtered.columns else 0
+    df_filtered['wet_cont_calc'] = pd.to_numeric(df_filtered[col_wet_cont_raw], errors='coerce').fillna(0) if col_wet_cont_raw in df_filtered.columns else 0
+    df_filtered['dry_cont_calc'] = pd.to_numeric(df_filtered[col_dry_cont_raw], errors='coerce').fillna(0) if col_dry_cont_raw in df_filtered.columns else 0
 
     # --- D. LOGIC BRANCHING ---
     display_count, positive_count, hi_val, ci_val, bi_val = 0, 0, 0, 0, 0
@@ -204,21 +174,17 @@ if not df.empty:
                 'wet_cont_calc': 'sum',
                 'dry_cont_calc': 'sum'
             }
-            # Keep metadata for map/graphs
             for c in [col_zone, col_lat, col_lon, col_premises, col_username]:
                 if c and c in df_filtered.columns: agg_dict[c] = 'first'
             
             df_grouped = df_filtered.groupby('unique_premise_id', as_index=False).agg(agg_dict)
             
-            # Metrics
             total_unique_premises = df_grouped['unique_premise_id'].nunique()
             positive_premises_count = (df_grouped['pos_house_calc'] > 0).sum()
-            
             hi_val = (positive_premises_count / total_unique_premises * 100) if total_unique_premises > 0 else 0
             
             total_pos_cont = df_grouped['pos_cont_calc'].sum()
             total_wet_cont = df_grouped['wet_cont_calc'].sum()
-            
             ci_val = (total_pos_cont / total_wet_cont * 100) if total_wet_cont > 0 else 0
             bi_val = (total_pos_cont / total_unique_premises * 100) if total_unique_premises > 0 else 0
             
@@ -226,7 +192,7 @@ if not df.empty:
             df_for_graphs['is_positive_premise'] = (df_for_graphs['pos_house_calc'] > 0).astype(int)
             display_count, positive_count = total_unique_premises, positive_premises_count
         else:
-            st.warning("⚠️ For Intra-Airport, 'Premises' and 'Date' columns are required for deduplication.")
+            st.warning("⚠️ For Intra-Airport, 'Premises' and 'Date' columns are required.")
             df_for_graphs = df_filtered.copy()
     else:
         # PERI
@@ -236,16 +202,14 @@ if not df.empty:
         
         if display_count > 0:
             hi_val = (positive_count / display_count) * 100
-            
             total_pos_cont = df_filtered['pos_cont_calc'].sum()
             total_wet_cont = df_filtered['wet_cont_calc'].sum()
-            
             ci_val = (total_pos_cont / total_wet_cont * 100) if total_wet_cont > 0 else 0
             bi_val = (total_pos_cont / display_count * 100)
             
         df_for_graphs = df_filtered.copy()
 
-    # --- E. DISPLAY METRICS ---
+    # --- E. METRICS ---
     label_hi = "Premises Index (PI)" if selected_key == 'intra' else "House Index (HI)"
     label_entries = "Unique Premises" if selected_key == 'intra' else "Total Entries"
     label_positive = "Positive Premises" if selected_key == 'intra' else "Positive Houses"
@@ -257,7 +221,7 @@ if not df.empty:
     m4.metric("Container Index (CI)", f"{ci_val:.2f}")
     m5.metric("Breteau Index (BI)", f"{bi_val:.2f}")
 
-    # --- F. GRAPHS (TOGGLE) ---
+    # --- F. GRAPHS ---
     st.divider()
     c_graph, c_report = st.columns([1,1])
     show_graphs = c_graph.toggle("Show Graphical Analysis", value=False)
@@ -265,7 +229,6 @@ if not df.empty:
     # --- G. MONTHLY REPORT GENERATOR ---
     with st.expander("📅 Monthly Report Generator", expanded=False):
         if date_col:
-            # Create Year-Month Column for Dropdown
             df_report = df.copy()
             df_report[date_col] = pd.to_datetime(df_report[date_col])
             df_report['Month_Year'] = df_report[date_col].dt.strftime('%Y-%m')
@@ -274,10 +237,14 @@ if not df.empty:
             selected_month = st.selectbox("Select Month to Generate Report:", available_months)
             
             if selected_month:
-                # 1. Filter Data for Month
                 df_month = df_report[df_report['Month_Year'] == selected_month].copy()
                 
-                # 2. Get ID Data
+                # --- FIX: EXPLICITLY CREATE CALC COLUMNS IN REPORT DF ---
+                df_month['pos_house_calc'] = pd.to_numeric(df_month[col_pos_house_raw], errors='coerce').fillna(0) if col_pos_house_raw in df_month.columns else 0
+                df_month['pos_cont_calc'] = pd.to_numeric(df_month[col_pos_cont_raw], errors='coerce').fillna(0) if col_pos_cont_raw in df_month.columns else 0
+                df_month['wet_cont_calc'] = pd.to_numeric(df_month[col_wet_cont_raw], errors='coerce').fillna(0) if col_wet_cont_raw in df_month.columns else 0
+                df_month['dry_cont_calc'] = pd.to_numeric(df_month[col_dry_cont_raw], errors='coerce').fillna(0) if col_dry_cont_raw in df_month.columns else 0
+
                 with st.spinner("Fetching Identification Data for Report..."):
                     df_id_rep = load_kobo_data(current_config['id_url'])
                     id_date_col = next((c for c in df_id_rep.columns if 'date' in c.lower() or 'today' in c.lower()), None)
@@ -285,24 +252,13 @@ if not df.empty:
                         df_id_rep[id_date_col] = pd.to_datetime(df_id_rep[id_date_col])
                         df_id_rep['join_date'] = df_id_rep[id_date_col].dt.date
                 
-                # 3. Iterate Days
                 unique_dates = sorted(df_month[date_col].dt.date.unique())
                 report_data = []
                 
-                # Ensure calculation columns exist in report df
-                for c in [col_pos_house_raw, col_pos_cont_raw, col_wet_cont_raw, col_dry_cont_raw]:
-                    t = 'pos_house_calc' if c == col_pos_house_raw else 'pos_cont_calc' if c == col_pos_cont_raw else 'wet_cont_calc' if c == col_wet_cont_raw else 'dry_cont_calc'
-                    if c in df_month.columns:
-                        df_month[t] = pd.to_numeric(df_month[c], errors='coerce').fillna(0)
-                    else:
-                        df_month[t] = 0
-
                 for i, day in enumerate(unique_dates, 1):
                     df_day = df_month[df_month[date_col].dt.date == day]
                     
-                    staffs = ""
-                    if col_username and col_username in df_day.columns:
-                        staffs = ", ".join(df_day[col_username].dropna().unique().astype(str))
+                    staffs = ", ".join(df_day[col_username].dropna().unique().astype(str)) if col_username in df_day else ""
                     
                     loc_list = ""
                     if selected_key == 'intra' and col_premises and col_premises in df_day:
@@ -314,7 +270,6 @@ if not df.empty:
                     d_wet = df_day['wet_cont_calc'].sum()
                     
                     if selected_key == 'intra':
-                        # Intra Daily Dedup
                         if col_premises in df_day.columns:
                             df_day['premise_clean'] = df_day[col_premises].apply(normalize_string)
                             df_day_grp = df_day.groupby('premise_clean').agg({'pos_house_calc':'max', 'pos_cont_calc':'sum', 'wet_cont_calc':'sum'})
@@ -330,7 +285,6 @@ if not df.empty:
                         else:
                             cnt_entries, cnt_pos, idx_hi, idx_ci, idx_bi = 0, 0, 0, 0, 0
                     else:
-                        # Peri Daily
                         cnt_entries = len(df_day)
                         cnt_pos = (df_day['pos_house_calc'] > 0).sum()
                         d_pos_cont = df_day['pos_cont_calc'].sum()
@@ -395,7 +349,7 @@ if not df.empty:
             if selected_key == 'peri' and show_subzone_graph and col_subzone in df_for_graphs.columns:
                 st.plotly_chart(plot_metric_bar(get_grouped_data(col_subzone), col_subzone, 'BI', "Breteau Index by SubZone", 'BI'), use_container_width=True)
 
-    # --- I. GEO MAP (FOLIUM) ---
+    # --- I. GEO MAP ---
     st.divider()
     with st.expander("🌍 View Geo-Spatial Mapping (Map)", expanded=False):
         if col_lat in df_for_graphs.columns and col_lon in df_for_graphs.columns:
@@ -404,18 +358,13 @@ if not df.empty:
                 avg_lat = map_df[col_lat].mean()
                 avg_lon = map_df[col_lon].mean()
                 m = folium.Map(location=[avg_lat, avg_lon], zoom_start=13)
-                
                 for idx, row in map_df.iterrows():
                     larvae_count = int(row['pos_house_calc'])
                     if larvae_count == 0:
                         color = '#00ff00'; fill_opacity = 0.5
                     else:
                         color = '#ff0000'; fill_opacity = min(1.0, 0.4 + (larvae_count * 0.1))
-                    
                     popup_text = f"Larvae: {larvae_count}"
-                    if selected_key == 'intra' and col_premises in row:
-                        popup_text = f"{row[col_premises]}: {larvae_count}"
-                        
                     folium.CircleMarker(
                         location=[row[col_lat], row[col_lon]], radius=6,
                         color=color, fill=True, fill_color=color, fill_opacity=fill_opacity,
@@ -450,7 +399,6 @@ if not df.empty:
                     mask_id = (df_id[date_col_id].dt.date >= start_date) & (df_id[date_col_id].dt.date <= end_date)
                     df_id = df_id.loc[mask_id]
 
-            # PIE CHARTS
             c1, c2 = st.columns(2)
             if col_genus in df_id.columns:
                 c1.write("#### Genus Distribution")
@@ -467,7 +415,6 @@ if not df.empty:
                 fig_pie_c = px.pie(cont_counts, values='Count', names='Container Type', hole=0.4)
                 c2.plotly_chart(fig_pie_c, use_container_width=True)
 
-            # TABLE
             df_display = pd.DataFrame()
             df_display['Serial No'] = range(1, 1 + len(df_id))
             df_display['Address'] = df_id[col_address_id] if col_address_id in df_id.columns else 'N/A'
@@ -490,7 +437,7 @@ if not df.empty:
                 show_image_popup(df_display.iloc[event.selection.rows[0]])
         else: st.info("No identification data available.")
 
-    # --- K. RAW DATA (BOTTOM) ---
+    # --- K. RAW DATA ---
     st.divider()
     with st.expander("📂 View Raw Data Table", expanded=False):
         st.dataframe(df_filtered)
