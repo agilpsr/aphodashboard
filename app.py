@@ -97,9 +97,77 @@ def get_base64_of_bin_file(bin_file):
         data = f.read()
     return base64.b64encode(data).decode()
 
+# --- SUMMARY GENERATOR ---
+def generate_narrative_summary(df, selected_key, date_col, col_street, col_subzone, col_premises):
+    # Prepare Date
+    df = df.copy()
+    df[date_col] = pd.to_datetime(df[date_col])
+    df['Month_Year'] = df[date_col].dt.to_period('M')
+    
+    all_months = sorted(df['Month_Year'].unique())
+    if not all_months: return "No data."
+    
+    curr_month = all_months[-1]
+    prev_month = all_months[-2] if len(all_months) > 1 else None
+    
+    df_curr = df[df['Month_Year'] == curr_month]
+    df_prev = df[df['Month_Year'] == prev_month] if prev_month else pd.DataFrame()
+    
+    narrative = [f"#### 📝 Executive Summary ({curr_month.strftime('%B %Y')})"]
+    
+    # 1. STREETS (HI DESCENDING)
+    if col_street and col_street in df_curr.columns:
+        # Calculate HI per street: (Pos Houses / Total Houses) * 100
+        street_stats = df_curr.groupby(col_street).agg(
+            pos=('pos_house_calc', lambda x: (x>0).sum()),
+            total=('pos_house_calc', 'count')
+        )
+        street_stats['HI'] = (street_stats['pos'] / street_stats['total'] * 100)
+        # Filter: Only streets with positive houses
+        top_streets = street_stats[street_stats['pos'] > 0].sort_values('HI', ascending=False).head(5)
+        
+        if not top_streets.empty:
+            s_list = ", ".join([f"**{idx}** ({row['HI']:.1f}%)" for idx, row in top_streets.iterrows()])
+            narrative.append(f"**🔴 High Risk Streets (House Index):** {s_list}")
+        else:
+            narrative.append(f"**🟢 Streets:** No positive streets found in {curr_month.strftime('%B')}.")
+            
+    # 2. CONTAINERS (Subzone/Premises)
+    loc_col = col_subzone if selected_key == 'peri' else col_premises
+    if loc_col and loc_col in df_curr.columns:
+        cont_stats = df_curr.groupby(loc_col)['pos_cont_calc'].sum().sort_values(ascending=False)
+        high_cont = cont_stats[cont_stats > 0].head(3)
+        if not high_cont.empty:
+            c_list = ", ".join([f"**{idx}** ({int(val)} containers)" for idx, val in high_cont.items()])
+            narrative.append(f"**🪣 High Positive Containers:** Found in {c_list}.")
+            
+    # 3. COMPARISON (Drastic Changes)
+    if prev_month and loc_col and loc_col in df_curr.columns:
+        def calc_hi(d, g_col):
+            g = d.groupby(g_col)
+            return (g['pos_house_calc'].apply(lambda x: (x>0).sum()) / g[g_col].count() * 100).fillna(0)
+
+        hi_c = calc_hi(df_curr, loc_col)
+        hi_p = calc_hi(df_prev, loc_col)
+        
+        comp = pd.DataFrame({'Curr': hi_c, 'Prev': hi_p}).fillna(0)
+        comp['Diff'] = comp['Curr'] - comp['Prev']
+        
+        inc = comp[comp['Diff'] > 0].sort_values('Diff', ascending=False).head(3)
+        dec = comp[comp['Diff'] < 0].sort_values('Diff', ascending=True).head(3)
+        
+        if not inc.empty:
+            i_str = ", ".join([f"**{idx}** (+{val:.1f}%)" for idx, val in inc['Diff'].items()])
+            narrative.append(f"**📈 Worsening Trends (vs {prev_month.strftime('%b')}):** Indices increased in {i_str}.")
+        
+        if not dec.empty:
+            d_str = ", ".join([f"**{idx}** ({val:.1f}%)" for idx, val in dec['Diff'].items()])
+            narrative.append(f"**📉 Improving Trends:** Indices reduced in {d_str}.")
+            
+    return "\n\n".join(narrative)
+
 # --- MAIN DASHBOARD LOGIC ---
 def render_dashboard(selected_key):
-    # Sidebar Navigation Back Button
     if st.sidebar.button("🏠 Back to Home"):
         st.session_state['page'] = 'home'
         st.rerun()
@@ -393,6 +461,11 @@ def render_dashboard(selected_key):
         if not df_id.empty:
             st.dataframe(df_id, use_container_width=True)
         else: st.info("No ID Data")
+
+    # --- EXECUTIVE SUMMARY (NEWLY ADDED) ---
+    st.divider()
+    summary_text = generate_narrative_summary(df_filtered, selected_key, date_col, col_street, col_subzone, col_premises)
+    st.markdown(summary_text)
 
 # --- HOME PAGE LOGIC (UPDATED WITH FULL BACKGROUND & PUSHED CONTENT) ---
 def get_base64_of_bin_file(bin_file):
