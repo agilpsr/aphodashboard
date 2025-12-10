@@ -9,7 +9,6 @@ st.set_page_config(page_title="Larvae Surveillance Dashboard", layout="wide")
 
 # --- 2. PASSWORD PROTECTION ---
 def check_password():
-    """Returns `True` if the user had the correct password."""
     if "password_correct" not in st.session_state:
         st.session_state.password_correct = False
 
@@ -28,7 +27,7 @@ def check_password():
 if not check_password():
     st.stop()
 
-# --- 3. DATA LOADING FUNCTION ---
+# --- 3. DATA LOADING ---
 @st.cache_data(ttl=300)
 def load_kobo_data(url):
     try:
@@ -37,7 +36,6 @@ def load_kobo_data(url):
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         
-        # Robust loading: auto-detect separator, skip bad lines
         df = pd.read_csv(
             io.StringIO(response.text), 
             sep=None, 
@@ -49,8 +47,7 @@ def load_kobo_data(url):
         st.error(f"Error loading data: {e}")
         return pd.DataFrame()
 
-# --- 4. NAVIGATION & TITLES ---
-# Map the internal keys to the User-Friendly Titles you requested
+# --- 4. NAVIGATION ---
 SECTION_CONFIG = {
     'outside': {
         'title': 'Peri-Airport Larvae Surveillance',
@@ -70,31 +67,23 @@ SECTION_CONFIG = {
     }
 }
 
-# Sidebar Navigation
 st.sidebar.header("Navigation")
-# We use the keys (outside, inside, etc.) for the radio button options
 selected_key = st.sidebar.radio("Select Report:", list(SECTION_CONFIG.keys()), format_func=lambda x: SECTION_CONFIG[x]['title'])
-
-# Get current config
 current_config = SECTION_CONFIG[selected_key]
 st.title(current_config['title'])
 
-# --- 5. MAIN LOGIC ---
 with st.spinner('Fetching data...'):
     df = load_kobo_data(current_config['url'])
 
 if not df.empty:
-    # --- A. DATA CLEANING & NORMALIZATION ---
-    # Try to standardize column names to Title Case for easier matching (e.g., 'zone' -> 'Zone')
-    # This creates a copy of columns mapped to "Zone", "SubZone", etc. if they exist vaguely
+    # --- A. CLEANING & MAPPING ---
     col_map = {c.lower(): c for c in df.columns}
     
-    # Define the standard columns we want to filter by
-    target_cols = {
-        'zone': col_map.get('zone') or col_map.get('zone_name') or 'Zone',
-        'subzone': col_map.get('subzone') or col_map.get('sub_zone') or 'SubZone',
-        'street': col_map.get('streetname') or col_map.get('street_name') or 'StreetName'
-    }
+    # Identify key columns safely
+    col_zone = col_map.get('zone') or col_map.get('zone_name')
+    col_subzone = col_map.get('subzone') or col_map.get('sub_zone')
+    col_street = col_map.get('streetname') or col_map.get('street_name')
+    col_positive = "Among_the_wet_containers_how_" # Exact name from user
 
     # --- B. FILTERS ---
     st.sidebar.divider()
@@ -115,7 +104,6 @@ if not df.empty:
         min_date = df_filtered[date_col].min().date()
         max_date = df_filtered[date_col].max().date()
         
-        # Two columns in sidebar for dates
         d1, d2 = st.sidebar.columns(2)
         start_date = d1.date_input("Start", min_date)
         end_date = d2.date_input("End", max_date)
@@ -123,69 +111,100 @@ if not df.empty:
         mask = (df_filtered[date_col].dt.date >= start_date) & (df_filtered[date_col].dt.date <= end_date)
         df_filtered = df_filtered.loc[mask]
 
-    # 2. Zone / Subzone / Street Filters
-    # We loop through our target columns. If the column exists in the Kobo data, we show a filter.
-    for label, actual_col in target_cols.items():
-        if actual_col in df_filtered.columns:
-            # Get unique values, ignore NaNs
-            options = sorted(df_filtered[actual_col].dropna().unique().astype(str))
-            selected_options = st.sidebar.multiselect(f"Filter by {label.title()}", options)
-            
-            if selected_options:
-                df_filtered = df_filtered[df_filtered[actual_col].astype(str).isin(selected_options)]
+    # 2. Explicit Zone/Subzone Filters (Needed for graph logic)
+    selected_zones = []
+    selected_subzones = []
 
-    # --- C. DISPLAY METRICS ---
-    st.markdown(f"### Total Entries: **{len(df_filtered)}**")
+    if col_zone and col_zone in df_filtered.columns:
+        options = sorted(df_filtered[col_zone].dropna().unique().astype(str))
+        selected_zones = st.sidebar.multiselect(f"Filter by Zone", options)
+        if selected_zones:
+            df_filtered = df_filtered[df_filtered[col_zone].astype(str).isin(selected_zones)]
 
-    # --- D. GRAPHS ---
-    # Using a toggle switch for the "Graph" button functionality
-    show_graphs = st.toggle("Show Graphs", value=False)
+    if col_subzone and col_subzone in df_filtered.columns:
+        # Filter options based on remaining data
+        options = sorted(df_filtered[col_subzone].dropna().unique().astype(str))
+        selected_subzones = st.sidebar.multiselect(f"Filter by SubZone", options)
+        if selected_subzones:
+            df_filtered = df_filtered[df_filtered[col_subzone].astype(str).isin(selected_subzones)]
+
+    if col_street and col_street in df_filtered.columns:
+        options = sorted(df_filtered[col_street].dropna().unique().astype(str))
+        selected_streets = st.sidebar.multiselect(f"Filter by Street", options)
+        if selected_streets:
+            df_filtered = df_filtered[df_filtered[col_street].astype(str).isin(selected_streets)]
+
+    # --- C. METRICS & INDICES ---
+    total_entries = len(df_filtered)
     
-    if show_graphs:
-        st.divider()
-        st.subheader("Visual Analysis")
-        
-        if df_filtered.empty:
-            st.warning("No data available to plot.")
-        else:
-            # Logic for OUTSIDE (Peri-Airport)
-            if selected_key == 'outside':
-                c1, c2 = st.columns(2)
-                
-                # Zone Graph
-                if target_cols['zone'] in df_filtered.columns:
-                    counts = df_filtered[target_cols['zone']].value_counts().reset_index()
-                    counts.columns = ['Zone', 'Count']
-                    fig_z = px.bar(counts, x='Zone', y='Count', title="Houses Seen by Zone", text='Count')
-                    c1.plotly_chart(fig_z, use_container_width=True)
+    # Layout for metrics
+    m1, m2 = st.columns(2)
+    m1.metric("Total Houses/Entries", total_entries)
 
-                # SubZone Graph
-                if target_cols['subzone'] in df_filtered.columns:
-                    counts = df_filtered[target_cols['subzone']].value_counts().reset_index()
-                    counts.columns = ['SubZone', 'Count']
-                    fig_s = px.bar(counts, x='SubZone', y='Count', title="Houses Seen by SubZone", text='Count')
-                    c2.plotly_chart(fig_s, use_container_width=True)
-                
-                # Street Graph (Full Width)
-                if target_cols['street'] in df_filtered.columns:
-                    counts = df_filtered[target_cols['street']].value_counts().reset_index()
-                    counts.columns = ['Street Name', 'Count']
-                    # Use a scrolling bar chart if there are many streets
-                    fig_st = px.bar(counts, x='Street Name', y='Count', title="Houses Seen by Street Name", text='Count')
-                    st.plotly_chart(fig_st, use_container_width=True)
-
-            # Logic for INSIDE (Intra-Airport)
-            elif selected_key == 'inside':
-                if target_cols['zone'] in df_filtered.columns:
-                    counts = df_filtered[target_cols['zone']].value_counts().reset_index()
-                    counts.columns = ['Zone', 'Count']
-                    fig_z = px.bar(counts, x='Zone', y='Count', title="Premises Seen by Zone", text='Count')
-                    st.plotly_chart(fig_z, use_container_width=True)
-                else:
-                    st.info("Zone column not found in this dataset.")
+    # House Index Calculation (Only for Peri-Airport)
+    if selected_key == 'outside':
+        if col_positive in df_filtered.columns:
+            # 1. Force column to numbers, turn errors into 0
+            # 2. If value > 0, it counts as 1. If 0, counts as 0.
+            positive_series = pd.to_numeric(df_filtered[col_positive], errors='coerce').fillna(0)
+            positive_houses_count = (positive_series > 0).sum()
             
+            # 3. Calculate Index
+            if total_entries > 0:
+                house_index = (positive_houses_count / total_entries) * 100
             else:
-                st.info("Graphs are specifically configured for Outside and Inside reports. Select those to view charts.")
+                house_index = 0
+            
+            m2.metric("House Index (HI)", f"{house_index:.2f}%", help="Positive Houses / Total Houses * 100")
+        else:
+            m2.warning(f"Column '{col_positive}' not found for House Index.")
+
+    # --- D. SMART GRAPHS ---
+    show_graphs = st.toggle("Show Graphs", value=True)
+    
+    if show_graphs and not df_filtered.empty:
+        st.divider()
+        
+        # Decide which graphs to show based on filters
+        # Logic: 
+        # - Show Zone graph ONLY IF no specific zone is selected AND no subzone is selected.
+        # - Show SubZone graph ONLY IF no specific subzone is selected.
+        
+        show_zone_graph = (len(selected_zones) == 0) and (len(selected_subzones) == 0)
+        show_subzone_graph = (len(selected_subzones) == 0)
+
+        if selected_key == 'outside':
+            c1, c2 = st.columns(2)
+            
+            # 1. Zone Graph
+            if show_zone_graph and col_zone in df_filtered.columns:
+                counts = df_filtered[col_zone].value_counts().reset_index()
+                counts.columns = ['Zone', 'Count']
+                fig_z = px.bar(counts, x='Zone', y='Count', title="Houses by Zone", text='Count')
+                c1.plotly_chart(fig_z, use_container_width=True)
+            
+            # 2. SubZone Graph
+            if show_subzone_graph and col_subzone in df_filtered.columns:
+                counts = df_filtered[col_subzone].value_counts().reset_index()
+                counts.columns = ['SubZone', 'Count']
+                fig_s = px.bar(counts, x='SubZone', y='Count', title="Houses by SubZone", text='Count')
+                # Put in c2 if c1 is used, otherwise c1
+                target_col = c2 if show_zone_graph else c1
+                target_col.plotly_chart(fig_s, use_container_width=True)
+            
+            # 3. Street Graph (Always show if data exists)
+            if col_street in df_filtered.columns:
+                counts = df_filtered[col_street].value_counts().reset_index()
+                counts.columns = ['Street Name', 'Count']
+                fig_st = px.bar(counts, x='Street Name', y='Count', title="Houses by Street Name", text='Count')
+                st.plotly_chart(fig_st, use_container_width=True)
+
+        elif selected_key == 'inside':
+             if col_zone in df_filtered.columns:
+                counts = df_filtered[col_zone].value_counts().reset_index()
+                counts.columns = ['Zone', 'Count']
+                fig_z = px.bar(counts, x='Zone', y='Count', title="Premises by Zone", text='Count')
+                st.plotly_chart(fig_z, use_container_width=True)
 
     # --- E. DATA TABLE ---
     st.divider()
