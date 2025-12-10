@@ -32,23 +32,31 @@ def check_password():
 if not check_password():
     st.stop()
 
-# --- 3. DATA LOADING FUNCTION ---
-@st.cache_data(ttl=300) # Clears cache every 5 minutes so data stays fresh
+# --- 3. DATA LOADING FUNCTION (UPDATED) ---
+@st.cache_data(ttl=300) 
 def load_kobo_data(url):
     try:
-        # We get the token securely from secrets
         token = st.secrets["KOBO_TOKEN"]
         headers = {"Authorization": f"Token {token}"}
         
-        # Fetch the data from Kobo
         response = requests.get(url, headers=headers)
-        response.raise_for_status() # Check for errors
+        response.raise_for_status() 
         
-        # Convert CSV text to a Table (DataFrame)
-        df = pd.read_csv(io.StringIO(response.text))
+        # FIX: Use 'sep=None' and 'engine=python' to auto-detect ; or ,
+        # 'on_bad_lines' will skip that one broken line (565) so the app doesn't crash
+        df = pd.read_csv(
+            io.StringIO(response.text), 
+            sep=None, 
+            engine='python',
+            on_bad_lines='skip' 
+        )
         return df
     except Exception as e:
         st.error(f"Error loading data: {e}")
+        # Debugging: Print the first 200 characters to see if it's actually an error message
+        if 'response' in locals():
+            st.text("Raw data preview (first 200 chars):")
+            st.code(response.text[:200])
         return pd.DataFrame()
 
 # --- 4. YOUR DATA SOURCES ---
