@@ -101,7 +101,6 @@ def normalize_string(text):
 
 if not df.empty:
     # --- A. CLEANING & MAPPING ---
-    # Create a lower-case map to find columns easily
     col_map_lower = {c.lower(): c for c in df.columns}
     
     col_zone = col_map_lower.get('zone') or col_map_lower.get('zone_name')
@@ -109,20 +108,18 @@ if not df.empty:
     col_street = col_map_lower.get('streetname') or col_map_lower.get('street_name')
     col_premises = col_map_lower.get('premises') or col_map_lower.get('premise') or col_map_lower.get('location')
     
-    col_pos_house_raw = "Among_the_wet_containers_how_"
-    col_pos_cont_raw = "In_the_Number_of_wet_containe"
-    col_wet_cont_raw = "Number_of_wet_containers_found"
+    # --- DEFINITIONS ---
+    # col_pos_house_raw is used to check if a house/premise is positive (>0)
+    col_pos_house_raw = "Among_the_wet_containers_how_"  
+    # col_pos_cont_raw is the NUMERATOR for CI and BI (Total Positive Containers)
+    col_pos_cont_raw = "Among_the_wet_containers_how_"  
+    # col_wet_cont_raw is the DENOMINATOR for CI (Total Wet Containers)
+    col_wet_cont_raw = "Number_of_wet_containers_found" 
 
     # --- UNIVERSAL DATE LOGIC ---
-    # STRICT RULE: We MUST use the column named "Date".
-    # We look for 'date' in our lowercase map.
     date_col = col_map_lower.get('date')
-
-    # If "Date" is missing, we try 'today' as a fallback, but we prioritize 'Date' above all.
     if not date_col:
         date_col = col_map_lower.get('today')
-    
-    # Only if both are missing do we fall back to system columns (which we want to avoid)
     if not date_col:
         fallback_cols = ['start', '_submission_time']
         for c in fallback_cols:
@@ -137,10 +134,7 @@ if not df.empty:
 
     # Apply Date Filter (Universally)
     if date_col:
-        # Ensure it is datetime
         df_filtered[date_col] = pd.to_datetime(df_filtered[date_col])
-        
-        # Determine Range
         min_date = df_filtered[date_col].min().date()
         max_date = df_filtered[date_col].max().date()
         
@@ -148,7 +142,6 @@ if not df.empty:
         start_date = d1.date_input("Start", min_date)
         end_date = d2.date_input("End", max_date)
         
-        # Filter Logic
         mask = (df_filtered[date_col].dt.date >= start_date) & (df_filtered[date_col].dt.date <= end_date)
         df_filtered = df_filtered.loc[mask]
     else:
@@ -177,6 +170,7 @@ if not df.empty:
             df_filtered = df_filtered[df_filtered[col_street].astype(str).isin(selected_streets)]
 
     # --- C. PRE-CALCULATIONS ---
+    # We load the data from the raw columns into calculation columns
     if col_pos_house_raw in df_filtered.columns:
         df_filtered['pos_house_calc'] = pd.to_numeric(df_filtered[col_pos_house_raw], errors='coerce').fillna(0)
     
@@ -190,7 +184,7 @@ if not df.empty:
     
     if selected_key == 'inside':
         if col_premises and date_col:
-            # 1. Create Key Part 1: Date String (Using the STRICT Date Column)
+            # 1. Create Key Part 1: Date String
             df_filtered['date_str_only'] = df_filtered[date_col].dt.date.astype(str)
             
             # 2. Create Key Part 2: CLEANED Premise Name
@@ -201,25 +195,29 @@ if not df.empty:
             
             # 4. Group by this Unique ID
             agg_dict = {
-                'pos_house_calc': 'max',
-                'pos_cont_calc': 'sum',
-                'wet_cont_calc': 'sum'
+                'pos_house_calc': 'max',  # If >0 anywhere, premise is positive
+                'pos_cont_calc': 'sum',   # Sum of all positive containers
+                'wet_cont_calc': 'sum'    # Sum of all wet containers
             }
             if col_zone in df_filtered.columns:
                 agg_dict[col_zone] = 'first' 
                 
             df_grouped = df_filtered.groupby('unique_premise_id', as_index=False).agg(agg_dict)
             
-            # 5. Calculate Metrics
+            # 5. Calculate Metrics (INTRA)
             total_unique_premises = df_grouped['unique_premise_id'].nunique()
             
+            # Premises Index (PI)
             positive_premises_count = (df_grouped['pos_house_calc'] > 0).sum()
             hi_val = (positive_premises_count / total_unique_premises * 100) if total_unique_premises > 0 else 0
             
+            # Container Index (CI)
             total_pos_cont = df_grouped['pos_cont_calc'].sum()
             total_wet_cont = df_grouped['wet_cont_calc'].sum()
             ci_val = (total_pos_cont / total_wet_cont * 100) if total_wet_cont > 0 else 0
             
+            # Breteau Index (BI)
+            # Denominator is UNIQUE PREMISES
             bi_val = (total_pos_cont / total_unique_premises * 100) if total_unique_premises > 0 else 0
             
             df_for_graphs = df_grouped.copy()
@@ -236,13 +234,20 @@ if not df.empty:
     else:
         # --- PERI-AIRPORT (STANDARD) ---
         display_count = len(df_filtered)
+        # House is positive if 'Among_the_wet_containers_how_' > 0
         df_filtered['is_positive_house'] = df_filtered['pos_house_calc'].apply(lambda x: 1 if x > 0 else 0)
         
         if display_count > 0:
+            # House Index
             hi_val = (df_filtered['is_positive_house'].sum() / display_count) * 100
+            
+            # Container Index
             total_pos_cont = df_filtered['pos_cont_calc'].sum()
             total_wet_cont = df_filtered['wet_cont_calc'].sum()
             ci_val = (total_pos_cont / total_wet_cont * 100) if total_wet_cont > 0 else 0
+            
+            # Breteau Index
+            # Denominator is TOTAL ENTRIES
             bi_val = (total_pos_cont / display_count * 100)
         else:
             hi_val, ci_val, bi_val = 0, 0, 0
@@ -287,7 +292,10 @@ if not df.empty:
             else:
                 g['HI'] = (g['is_positive_house'] / g['Denominator']) * 100
                 
+            # CI Calculation
             g['CI'] = (g['pos_cont_calc'] / g['wet_cont_calc'].replace(0, 1)) * 100 
+            
+            # BI Calculation
             g['BI'] = (g['pos_cont_calc'] / g['Denominator']) * 100
             
             return g.reset_index()
