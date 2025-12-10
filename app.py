@@ -153,7 +153,7 @@ if not df.empty:
         selected_streets = st.sidebar.multiselect(f"Filter by Street", options)
         if selected_streets: df_filtered = df_filtered[df_filtered[col_street].astype(str).isin(selected_streets)]
 
-    # --- C. PRE-CALCULATIONS (MAIN DF) ---
+    # --- C. PRE-CALCULATIONS ---
     df_filtered['pos_house_calc'] = pd.to_numeric(df_filtered[col_pos_house_raw], errors='coerce').fillna(0) if col_pos_house_raw in df_filtered.columns else 0
     df_filtered['pos_cont_calc'] = pd.to_numeric(df_filtered[col_pos_cont_raw], errors='coerce').fillna(0) if col_pos_cont_raw in df_filtered.columns else 0
     df_filtered['wet_cont_calc'] = pd.to_numeric(df_filtered[col_wet_cont_raw], errors='coerce').fillna(0) if col_wet_cont_raw in df_filtered.columns else 0
@@ -239,7 +239,7 @@ if not df.empty:
             if selected_month:
                 df_month = df_report[df_report['Month_Year'] == selected_month].copy()
                 
-                # --- FIX: EXPLICITLY CREATE CALC COLUMNS IN REPORT DF ---
+                # --- CALCULATION COLUMNS FOR REPORT ---
                 df_month['pos_house_calc'] = pd.to_numeric(df_month[col_pos_house_raw], errors='coerce').fillna(0) if col_pos_house_raw in df_month.columns else 0
                 df_month['pos_cont_calc'] = pd.to_numeric(df_month[col_pos_cont_raw], errors='coerce').fillna(0) if col_pos_cont_raw in df_month.columns else 0
                 df_month['wet_cont_calc'] = pd.to_numeric(df_month[col_wet_cont_raw], errors='coerce').fillna(0) if col_wet_cont_raw in df_month.columns else 0
@@ -318,6 +318,10 @@ if not df.empty:
 
     # --- H. VISUALS ---
     if show_graphs:
+        # --- FIXED: DEFINED THESE VARIABLES HERE ---
+        show_zone_graph = (len(selected_zones) == 0) and (len(selected_subzones) == 0)
+        show_subzone_graph = (len(selected_subzones) == 0)
+
         def get_grouped_data(groupby_col):
             aggs = {'pos_cont_calc': 'sum', 'wet_cont_calc': 'sum'}
             if selected_key == 'intra':
