@@ -39,6 +39,7 @@ def load_kobo_data(url):
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         
+        # We assume standard encoding, but we will fix artifacts later
         df = pd.read_csv(
             io.StringIO(response.text), 
             sep=None, 
@@ -163,49 +164,56 @@ if not df.empty:
     if selected_key == 'inside':
         # --- INTRA-AIRPORT UNIQUE ID LOGIC ---
         if col_premises and date_col:
-            # 1. Create the EXACT Looker Studio Key: Date + Premises
+            # 1. Create the Key Part 1: Date String
             df_filtered['date_str_only'] = df_filtered[date_col].dt.date.astype(str)
             
-            # UPDATED CLEANING: Lowercase + remove double spaces + strip
-            # This turns "Terminal  1" (two spaces) into "terminal 1" (one space)
-            df_filtered['premise_clean'] = df_filtered[col_premises].astype(str).str.lower().str.replace(r'\s+', ' ', regex=True).str.strip()
+            # 2. Create Key Part 2: CLEANED Premise Name
+            # Start with lowercase
+            s = df_filtered[col_premises].astype(str).str.lower()
             
+            # FIX: REPLACE THE GARBAGE ENCODING CHARACTERS
+            # We replace "Ã¢Â€Â“" and "â€“" and "–" (en-dash) and "—" (em-dash) with a simple "-"
+            s = s.str.replace('ã¢â€â“', '-', regex=False) 
+            s = s.str.replace('â€“', '-', regex=False)
+            s = s.str.replace('–', '-', regex=False)
+            s = s.str.replace('—', '-', regex=False)
+            
+            # Standardize whitespace (remove double spaces)
+            s = s.str.replace(r'\s+', ' ', regex=True).str.strip()
+            
+            df_filtered['premise_clean'] = s
             df_filtered['unique_premise_id'] = df_filtered['date_str_only'] + "_" + df_filtered['premise_clean']
             
-            # 2. Group by this Unique ID
+            # 3. Group by this Unique ID
             agg_dict = {
                 'pos_house_calc': 'max',
                 'pos_cont_calc': 'sum',
                 'wet_cont_calc': 'sum'
             }
             if col_zone in df_filtered.columns:
-                agg_dict[col_zone] = 'first' # Keep zone label
+                agg_dict[col_zone] = 'first' 
                 
             df_grouped = df_filtered.groupby('unique_premise_id', as_index=False).agg(agg_dict)
             
-            # 3. Calculate Metrics
+            # 4. Calculate Metrics
             total_unique_premises = df_grouped['unique_premise_id'].nunique()
             
-            # Premises Index (PI)
             positive_premises_count = (df_grouped['pos_house_calc'] > 0).sum()
             hi_val = (positive_premises_count / total_unique_premises * 100) if total_unique_premises > 0 else 0
             
-            # Container Index (CI)
             total_pos_cont = df_grouped['pos_cont_calc'].sum()
             total_wet_cont = df_grouped['wet_cont_calc'].sum()
             ci_val = (total_pos_cont / total_wet_cont * 100) if total_wet_cont > 0 else 0
             
-            # Breteau Index (BI)
             bi_val = (total_pos_cont / total_unique_premises * 100) if total_unique_premises > 0 else 0
             
-            # Prepare data for graphs
             df_for_graphs = df_grouped.copy()
             df_for_graphs['is_positive_premise'] = (df_for_graphs['pos_house_calc'] > 0).astype(int)
             
             display_count = total_unique_premises
 
         else:
-            st.warning("⚠️ Could not find 'Premises' or 'Date' column. Using standard row count.")
+            st.warning("⚠️ Could not find 'Premises' or 'Date' column.")
             display_count = len(df_filtered)
             hi_val, ci_val, bi_val = 0, 0, 0
             df_for_graphs = df_filtered.copy()
@@ -246,15 +254,12 @@ if not df.empty:
         show_subzone_graph = (len(selected_subzones) == 0)
 
         def get_grouped_data(groupby_col):
-            # Define aggregations based on columns available in df_for_graphs
             aggs = {
                 'pos_cont_calc': 'sum',
                 'wet_cont_calc': 'sum',
             }
-            
-            # If we are INSIDE, df_for_graphs is already deduped. 
             if selected_key == 'inside':
-                aggs[groupby_col] = 'count' # This counts the unique premises
+                aggs[groupby_col] = 'count'
                 aggs['is_positive_premise'] = 'sum'
             else:
                 aggs[groupby_col] = 'count'
@@ -272,7 +277,6 @@ if not df.empty:
             
             return g.reset_index()
 
-        # --- GRAPH SECTIONS ---
         with st.expander(f"📊 View {label_hi} Graphs"):
             st.info("Vector Density: Percentage of houses/premises found positive.")
             if show_zone_graph and col_zone in df_for_graphs.columns:
@@ -313,7 +317,7 @@ if not df.empty:
     with st.expander("📂 View Raw Data Table"):
         st.dataframe(df_filtered)
 
-    # --- G. DEBUG TOOL (New) ---
+    # --- G. DEBUG TOOL ---
     if selected_key == 'inside':
         st.divider()
         with st.expander("🐞 Debug Tool (Check Unique IDs)"):
