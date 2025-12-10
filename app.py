@@ -3,6 +3,7 @@ import pandas as pd
 import requests
 import io
 import plotly.express as px
+import pydeck as pdk
 import re
 import urllib.parse
 
@@ -74,31 +75,20 @@ def normalize_string(text):
     if pd.isna(text): return ""
     return re.sub(r'[^a-z0-9]', '', str(text).lower())
 
-# --- HELPER: THUMBNAIL GENERATOR (SPEED BOOST) ---
+# --- HELPER: THUMBNAIL GENERATOR ---
 def get_thumbnail_url(original_url):
-    """
-    Uses wsrv.nl proxy to resize images on the fly.
-    This converts a 5MB image into a 50KB thumbnail for the table.
-    """
     if not isinstance(original_url, str) or not original_url.startswith("http"):
         return None
-    
-    # We encode the original URL to safely pass it to the proxy
     encoded_url = urllib.parse.quote(original_url)
-    
-    # Request a 400px wide version (Good balance of speed vs quality for table)
     return f"https://wsrv.nl/?url={original_url}&w=400&q=80"
 
 # --- HELPER: IMAGE POPUP DIALOG ---
 @st.dialog("Microscopic View", width="large")
 def show_image_popup(row_data):
     st.subheader(f"{row_data['Genus']} ({row_data['Species']})")
-    
     c1, c2 = st.columns(2)
     c1.info(f"📍 **Address:** {row_data['Address']}")
     c2.warning(f"📅 **Date:** {row_data['Date']}")
-    
-    # USE THE ORIGINAL (HUGE) URL HERE FOR ZOOMING
     if row_data['Original Image URL'] and str(row_data['Original Image URL']).startswith('http'):
         st.image(row_data['Original Image URL'], caption="Microscopic View (Full Resolution)", use_container_width=True)
     else:
@@ -115,6 +105,10 @@ if not df.empty:
     col_pos_house_raw = "Among_the_wet_containers_how_"  
     col_pos_cont_raw = "Among_the_wet_containers_how_"  
     col_wet_cont_raw = "Number_of_wet_containers_found" 
+    
+    # GEO COLUMNS
+    col_lat = "_Location_latitude"
+    col_lon = "_Location_longitude"
 
     # --- DATE LOGIC ---
     date_col = col_map_lower.get('date') or col_map_lower.get('today')
@@ -174,8 +168,15 @@ if not df.empty:
             df_filtered['premise_clean'] = df_filtered[col_premises].apply(normalize_string)
             df_filtered['unique_premise_id'] = df_filtered['date_str_only'] + "_" + df_filtered['premise_clean']
             
-            agg_dict = {'pos_house_calc': 'max', 'pos_cont_calc': 'sum', 'wet_cont_calc': 'sum'}
-            if col_zone in df_filtered.columns: agg_dict[col_zone] = 'first' 
+            # Use 'first' for lat/lon to keep them in the grouped data
+            agg_dict = {
+                'pos_house_calc': 'max', 
+                'pos_cont_calc': 'sum', 
+                'wet_cont_calc': 'sum',
+            }
+            if col_zone in df_filtered.columns: agg_dict[col_zone] = 'first'
+            if col_lat in df_filtered.columns: agg_dict[col_lat] = 'first'
+            if col_lon in df_filtered.columns: agg_dict[col_lon] = 'first'
             
             df_grouped = df_filtered.groupby('unique_premise_id', as_index=False).agg(agg_dict)
             
@@ -262,10 +263,65 @@ if not df.empty:
             if selected_key == 'peri' and show_subzone_graph and col_subzone in df_for_graphs.columns:
                 st.plotly_chart(plot_metric_bar(get_grouped_data(col_subzone), col_subzone, 'BI', "Breteau Index by SubZone", 'BI'), use_container_width=True)
 
-    # --- G. TABLE ---
+    # --- G. GEO SPATIAL MAPPING (NEW) ---
     st.divider()
-    with st.expander("📂 View Raw Data Table"):
-        st.dataframe(df_filtered)
+    with st.expander("🌍 View Geo-Spatial Mapping", expanded=False):
+        if col_lat in df_for_graphs.columns and col_lon in df_for_graphs.columns:
+            # Drop invalid coordinates
+            map_data = df_for_graphs.dropna(subset=[col_lat, col_lon]).copy()
+            
+            if not map_data.empty:
+                # --- COLOR LOGIC ---
+                # We need RGBA colors for PyDeck. 
+                # Green (0): [0, 255, 0, 128] (50% transparent)
+                # Red (1+):  [255, 0, 0, alpha] where alpha increases with count
+                
+                def get_color(val):
+                    val = int(val)
+                    if val == 0:
+                        return [0, 255, 0, 128] # Green, 50% opacity
+                    else:
+                        # Logic: Start at 100 opacity, max at 255
+                        # Cap the multiplier so huge numbers don't break logic
+                        alpha = min(255, 100 + (val * 30)) 
+                        return [255, 0, 0, int(alpha)] # Red, variable opacity
+
+                map_data['color'] = map_data['pos_house_calc'].apply(get_color)
+                
+                # --- PYDECK LAYER ---
+                layer = pdk.Layer(
+                    "ScatterplotLayer",
+                    map_data,
+                    get_position=[col_lon, col_lat],
+                    get_color="color",
+                    get_radius=100,  # Radius in meters
+                    pickable=True,
+                    opacity=1.0,     # We handle opacity individually in color
+                    stroked=True,
+                    filled=True,
+                    radius_min_pixels=5,
+                    radius_max_pixels=20,
+                )
+
+                # --- VIEW STATE ---
+                # Center map on the average data point
+                view_state = pdk.ViewState(
+                    latitude=map_data[col_lat].mean(),
+                    longitude=map_data[col_lon].mean(),
+                    zoom=13,
+                    pitch=0,
+                )
+
+                st.pydeck_chart(pdk.Deck(
+                    map_style='mapbox://styles/mapbox/light-v9',
+                    initial_view_state=view_state,
+                    layers=[layer],
+                    tooltip={"text": "Positives: {pos_house_calc}"}
+                ))
+            else:
+                st.warning("No valid GPS coordinates found in filtered data.")
+        else:
+            st.warning(f"Columns {col_lat} and {col_lon} not found in dataset.")
 
     # --- H. LARVAE IDENTIFICATION ---
     st.divider()
@@ -276,12 +332,10 @@ if not df.empty:
             df_id = load_kobo_data(current_config['id_url'])
         
         if not df_id.empty:
-            # 1. Filters
             col_map_id = {c.lower(): c for c in df_id.columns}
             date_col_id = col_map_id.get('date') or col_map_id.get('today')
             col_address_id = col_map_id.get('address') or col_map_id.get('location') or col_map_id.get('premise') or col_map_id.get('premises') or col_map_id.get('streetname')
             
-            # Find Image Column
             possible_img_cols = ["Attach the microscopic image of the larva _URL", "Attach the microscopic image of the larva_URL", "image_url", "url"]
             col_img = None
             for c in possible_img_cols:
@@ -296,7 +350,6 @@ if not df.empty:
                     mask_id = (df_id[date_col_id].dt.date >= start_date) & (df_id[date_col_id].dt.date <= end_date)
                     df_id = df_id.loc[mask_id]
 
-            # 2. PIE CHART
             if col_genus in df_id.columns:
                 st.write("#### Genus Distribution")
                 genus_counts = df_id[col_genus].value_counts().reset_index()
@@ -304,7 +357,6 @@ if not df.empty:
                 fig_pie = px.pie(genus_counts, values='Count', names='Genus', hole=0.4)
                 st.plotly_chart(fig_pie, use_container_width=True)
 
-            # 3. INTERACTIVE IMAGE TABLE
             df_display = pd.DataFrame()
             df_display['Serial No'] = range(1, 1 + len(df_id))
             df_display['Address'] = df_id[col_address_id] if col_address_id in df_id.columns else 'N/A'
@@ -312,11 +364,8 @@ if not df.empty:
             df_display['Genus'] = df_id[col_genus] if col_genus in df_id.columns else 'N/A'
             df_display['Species'] = df_id[col_species] if col_species in df_id.columns else 'N/A'
             
-            # THE MAGIC: Create 2 columns for Image (Original vs Thumbnail)
             if col_img:
-                # Store the HUGE original URL for the popup
                 df_display['Original Image URL'] = df_id[col_img]
-                # Store the TINY proxy URL for the table
                 df_display['Thumbnail'] = df_id[col_img].apply(get_thumbnail_url)
             else:
                 df_display['Original Image URL'] = None
@@ -324,14 +373,13 @@ if not df.empty:
 
             st.info("💡 **Select a row** to view the **Mega-Size Image**.")
             
-            # We hide 'Original Image URL' from the table but keep it in data for popup
             event = st.dataframe(
                 df_display,
                 column_config={
                     "Thumbnail": st.column_config.ImageColumn(
                         "Microscopic Image", help="Thumbnail", width="large"
                     ),
-                    "Original Image URL": None # Hide this column
+                    "Original Image URL": None 
                 },
                 hide_index=True,
                 use_container_width=True,
@@ -339,7 +387,6 @@ if not df.empty:
                 selection_mode="single-row"
             )
 
-            # 4. POPUP LOGIC
             if len(event.selection.rows) > 0:
                 selected_index = event.selection.rows[0]
                 selected_row_data = df_display.iloc[selected_index]
@@ -347,6 +394,18 @@ if not df.empty:
 
         else:
             st.info("No identification data available.")
+
+    # --- I. RAW DATA TABLE (MOVED TO BOTTOM) ---
+    st.divider()
+    with st.expander("📂 View Raw Data Table"):
+        st.dataframe(df_filtered)
+
+    # --- G. DEBUG TOOL ---
+    if selected_key == 'inside':
+        st.divider()
+        with st.expander("🐞 Debug Tool (Check Unique IDs)"):
+            csv = df_grouped.to_csv(index=False).encode('utf-8')
+            st.download_button("Download Processed Data", csv, "debug_unique_premises.csv", "text/csv")
 
 else:
     st.info("No data found. Please check your Kobo connection or selection.")
