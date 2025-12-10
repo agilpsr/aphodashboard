@@ -14,43 +14,6 @@ import base64
 # --- 1. SETUP PAGE CONFIGURATION ---
 st.set_page_config(page_title="APHO Tiruchirappalli Dashboard", layout="wide")
 
-def check_password():
-    """Returns `True` if the user had the correct password."""
-
-    def password_entered():
-        """Checks whether a password entered by the user is correct."""
-        if st.session_state["password"] == "Aphotrz@2025":
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]  # don't store password
-        else:
-            st.session_state["password_correct"] = False
-
-    if "password_correct" not in st.session_state:
-        # First run, show input for password.
-        st.text_input(
-            "Please enter the password to access the Dashboard:", 
-            type="password", 
-            on_change=password_entered, 
-            key="password"
-        )
-        return False
-    elif not st.session_state["password_correct"]:
-        # Password not correct, show input + error.
-        st.text_input(
-            "Please enter the password to access the Dashboard:", 
-            type="password", 
-            on_change=password_entered, 
-            key="password"
-        )
-        st.error("😕 Password incorrect")
-        return False
-    else:
-        # Password correct.
-        return True
-
-if not check_password():
-    st.stop()  # Do not run any more code if password is wrong
-
 # --- STAFF NAME MAPPING ---
 STAFF_NAMES = {
     'abhiguptak': 'Abhishek Gupta',
@@ -136,7 +99,6 @@ def get_base64_of_bin_file(bin_file):
 
 # --- SUMMARY GENERATOR ---
 def generate_narrative_summary(df, selected_key, date_col, col_street, col_subzone, col_premises):
-    # Prepare Date
     df = df.copy()
     df[date_col] = pd.to_datetime(df[date_col])
     df['Month_Year'] = df[date_col].dt.to_period('M')
@@ -152,15 +114,12 @@ def generate_narrative_summary(df, selected_key, date_col, col_street, col_subzo
     
     narrative = [f"#### 📝 Executive Summary ({curr_month.strftime('%B %Y')})"]
     
-    # 1. STREETS (HI DESCENDING)
     if col_street and col_street in df_curr.columns:
-        # Calculate HI per street: (Pos Houses / Total Houses) * 100
         street_stats = df_curr.groupby(col_street).agg(
             pos=('pos_house_calc', lambda x: (x>0).sum()),
             total=('pos_house_calc', 'count')
         )
         street_stats['HI'] = (street_stats['pos'] / street_stats['total'] * 100)
-        # Filter: Only streets with positive houses
         top_streets = street_stats[street_stats['pos'] > 0].sort_values('HI', ascending=False).head(5)
         
         if not top_streets.empty:
@@ -169,7 +128,6 @@ def generate_narrative_summary(df, selected_key, date_col, col_street, col_subzo
         else:
             narrative.append(f"**🟢 Streets:** No positive streets found in {curr_month.strftime('%B')}.")
             
-    # 2. CONTAINERS (Subzone/Premises)
     loc_col = col_subzone if selected_key == 'peri' else col_premises
     if loc_col and loc_col in df_curr.columns:
         cont_stats = df_curr.groupby(loc_col)['pos_cont_calc'].sum().sort_values(ascending=False)
@@ -178,7 +136,6 @@ def generate_narrative_summary(df, selected_key, date_col, col_street, col_subzo
             c_list = ", ".join([f"**{idx}** ({int(val)} containers)" for idx, val in high_cont.items()])
             narrative.append(f"**🪣 High Positive Containers:** Found in {c_list}.")
             
-    # 3. COMPARISON (Drastic Changes)
     if prev_month and loc_col and loc_col in df_curr.columns:
         def calc_hi(d, g_col):
             g = d.groupby(g_col)
@@ -186,25 +143,50 @@ def generate_narrative_summary(df, selected_key, date_col, col_street, col_subzo
 
         hi_c = calc_hi(df_curr, loc_col)
         hi_p = calc_hi(df_prev, loc_col)
-        
         comp = pd.DataFrame({'Curr': hi_c, 'Prev': hi_p}).fillna(0)
         comp['Diff'] = comp['Curr'] - comp['Prev']
-        
         inc = comp[comp['Diff'] > 0].sort_values('Diff', ascending=False).head(3)
         dec = comp[comp['Diff'] < 0].sort_values('Diff', ascending=True).head(3)
-        
         if not inc.empty:
             i_str = ", ".join([f"**{idx}** (+{val:.1f}%)" for idx, val in inc['Diff'].items()])
             narrative.append(f"**📈 Worsening Trends (vs {prev_month.strftime('%b')}):** Indices increased in {i_str}.")
-        
         if not dec.empty:
             d_str = ", ".join([f"**{idx}** ({val:.1f}%)" for idx, val in dec['Diff'].items()])
             narrative.append(f"**📉 Improving Trends:** Indices reduced in {d_str}.")
             
     return "\n\n".join(narrative)
 
-# --- MAIN DASHBOARD LOGIC ---
+# --- PASSWORD FUNCTION ---
+def check_password_on_home():
+    """Checks password match. Returns True if correct."""
+    def password_entered():
+        if st.session_state["password"] == "Aphotrz@2025":
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]
+        else:
+            st.session_state["password_correct"] = False
+    
+    if st.session_state.get("password_correct", False):
+        return True
+    
+    # Show Input
+    st.text_input("🔒 Enter Password to Login", type="password", on_change=password_entered, key="password")
+    if "password_correct" in st.session_state and not st.session_state["password_correct"]:
+        st.error("❌ Password incorrect")
+    return False
+
+# --- MAIN DASHBOARD RENDERER ---
 def render_dashboard(selected_key):
+    # CSS: Reset margins so dashboard uses full screen
+    st.markdown("""
+        <style>
+        .block-container {
+            margin-top: 2rem !important;
+            padding-top: 1rem !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
     if st.sidebar.button("🏠 Back to Home"):
         st.session_state['page'] = 'home'
         st.rerun()
@@ -219,7 +201,7 @@ def render_dashboard(selected_key):
         st.info("No data found or error loading Kobo data.")
         return
 
-    # --- A. COLUMN MAPPING ---
+    # Column Mapping
     col_map_lower = {c.lower(): c for c in df.columns}
     col_zone = col_map_lower.get('zone')
     col_subzone = col_map_lower.get('subzone')
@@ -232,53 +214,39 @@ def render_dashboard(selected_key):
     col_dry_cont_raw = "number_of_dry_contai_tentially_hold_water"
     col_lat = "_Location_latitude"
     col_lon = "_Location_longitude"
-    
     date_col = "Date" if "Date" in df.columns else col_map_lower.get('date')
     if not date_col:
         for c in ['today', 'start', '_submission_time']:
              if c in col_map_lower: date_col = col_map_lower[c]; break
 
-    # --- B. FILTERS ---
+    # Filters
     st.sidebar.divider()
     st.sidebar.subheader("Filters")
     df_filtered = df.copy()
-
-    start_date, end_date = None, None
     if date_col:
         df_filtered[date_col] = pd.to_datetime(df_filtered[date_col])
-        min_date = df_filtered[date_col].min().date()
-        max_date = df_filtered[date_col].max().date()
+        min_date, max_date = df_filtered[date_col].min().date(), df_filtered[date_col].max().date()
         d1, d2 = st.sidebar.columns(2)
         start_date = d1.date_input("Start", min_date)
         end_date = d2.date_input("End", max_date)
         mask = (df_filtered[date_col].dt.date >= start_date) & (df_filtered[date_col].dt.date <= end_date)
         df_filtered = df_filtered.loc[mask]
 
-    selected_zones = []
     if col_zone and col_zone in df_filtered.columns:
-        options = sorted(df_filtered[col_zone].dropna().unique().astype(str))
-        selected_zones = st.sidebar.multiselect(f"Filter by Zone", options)
-        if selected_zones: df_filtered = df_filtered[df_filtered[col_zone].astype(str).isin(selected_zones)]
-
-    selected_subzones = []
+        opts = sorted(df_filtered[col_zone].dropna().unique().astype(str))
+        sel = st.sidebar.multiselect(f"Filter by Zone", opts)
+        if sel: df_filtered = df_filtered[df_filtered[col_zone].astype(str).isin(sel)]
     if col_subzone and col_subzone in df_filtered.columns:
-        options = sorted(df_filtered[col_subzone].dropna().unique().astype(str))
-        selected_subzones = st.sidebar.multiselect(f"Filter by SubZone", options)
-        if selected_subzones: df_filtered = df_filtered[df_filtered[col_subzone].astype(str).isin(selected_subzones)]
+        opts = sorted(df_filtered[col_subzone].dropna().unique().astype(str))
+        sel = st.sidebar.multiselect(f"Filter by SubZone", opts)
+        if sel: df_filtered = df_filtered[df_filtered[col_subzone].astype(str).isin(sel)]
 
-    if col_street and col_street in df_filtered.columns:
-        options = sorted(df_filtered[col_street].dropna().unique().astype(str))
-        selected_streets = st.sidebar.multiselect(f"Filter by Street", options)
-        if selected_streets: df_filtered = df_filtered[df_filtered[col_street].astype(str).isin(selected_streets)]
-
-    # --- C. PRE-CALCULATIONS ---
+    # Calcs
     for col, raw_col in [('pos_house_calc', col_pos_house_raw), ('pos_cont_calc', col_pos_cont_raw), ('wet_cont_calc', col_wet_cont_raw)]:
         df_filtered[col] = pd.to_numeric(df_filtered[raw_col], errors='coerce').fillna(0) if raw_col in df_filtered.columns else 0
     df_filtered['dry_cont_calc'] = pd.to_numeric(df_filtered[col_dry_cont_raw], errors='coerce').fillna(0) if col_dry_cont_raw in df_filtered.columns else 0
 
-    # --- D. LOGIC BRANCHING ---
     display_count, positive_count, hi_val, ci_val, bi_val = 0, 0, 0, 0, 0
-
     if selected_key == 'intra':
         if col_premises and date_col:
             df_filtered['unique_premise_id'] = df_filtered[date_col].dt.date.astype(str) + "_" + df_filtered[col_premises].apply(normalize_string)
@@ -292,14 +260,11 @@ def render_dashboard(selected_key):
             hi_val = (positive_premises_count / total_unique_premises * 100) if total_unique_premises > 0 else 0
             ci_val = (df_grouped['pos_cont_calc'].sum() / df_grouped['wet_cont_calc'].sum() * 100) if df_grouped['wet_cont_calc'].sum() > 0 else 0
             bi_val = (df_grouped['pos_cont_calc'].sum() / total_unique_premises * 100) if total_unique_premises > 0 else 0
-            
             df_for_graphs = df_grouped.copy()
             df_for_graphs['is_positive_premise'] = (df_for_graphs['pos_house_calc'] > 0).astype(int)
             display_count, positive_count = total_unique_premises, positive_premises_count
-        else:
-            df_for_graphs = df_filtered.copy()
+        else: df_for_graphs = df_filtered.copy()
     else:
-        # PERI
         display_count = len(df_filtered)
         df_filtered['is_positive_house'] = df_filtered['pos_house_calc'].apply(lambda x: 1 if x > 0 else 0)
         positive_count = df_filtered['is_positive_house'].sum()
@@ -309,7 +274,7 @@ def render_dashboard(selected_key):
             bi_val = (df_filtered['pos_cont_calc'].sum() / display_count * 100)
         df_for_graphs = df_filtered.copy()
 
-    # --- E. METRICS ---
+    # Metrics
     label_hi = "Premises Index (PI)" if selected_key == 'intra' else "House Index (HI)"
     label_entries = "Unique Premises" if selected_key == 'intra' else "Total Entries"
     m1, m2, m3, m4, m5 = st.columns(5)
@@ -319,12 +284,11 @@ def render_dashboard(selected_key):
     m4.metric("Container Index (CI)", f"{ci_val:.2f}")
     m5.metric("Breteau Index (BI)", f"{bi_val:.2f}")
 
-    # --- F. GRAPHS ---
+    # Graphs
     st.divider()
     c_graph, c_report = st.columns([1,1])
     show_graphs = c_graph.toggle("Show Graphical Analysis", value=False)
 
-    # --- REPORT GENERATOR FUNC ---
     def generate_report_df(df_source, report_period_name):
         with st.spinner("Fetching Identification Data..."):
             df_id_rep = load_kobo_data(current_config['id_url'])
@@ -385,7 +349,6 @@ def render_dashboard(selected_key):
             })
         return pd.DataFrame(report_data)
 
-    # --- STAFF PERFORMANCE REPORT ---
     with st.expander("👮 Staff Performance Report", expanded=False):
         if col_username in df_filtered.columns:
             staff_group = df_filtered.groupby(col_username)
@@ -423,14 +386,12 @@ def render_dashboard(selected_key):
             st.download_button("Download Staff Excel", to_excel(staff_final), "Staff_Performance.xlsx")
         else: st.warning("Username column not found.")
 
-    # --- MONTHLY & FORTNIGHTLY REPORTS ---
     c_month, c_fort = st.columns(2)
     with c_month:
         with st.expander("📅 Monthly Report", expanded=False):
             if date_col:
                 df_rep_raw = df.copy()
                 df_rep_raw[date_col] = pd.to_datetime(df_rep_raw[date_col])
-                # Re-apply calcs
                 for col, raw_col in [('pos_house_calc', col_pos_house_raw), ('pos_cont_calc', col_pos_cont_raw), ('wet_cont_calc', col_wet_cont_raw)]:
                     df_rep_raw[col] = pd.to_numeric(df_rep_raw[raw_col], errors='coerce').fillna(0) if raw_col in df_rep_raw.columns else 0
                 df_rep_raw['dry_cont_calc'] = pd.to_numeric(df_rep_raw[col_dry_cont_raw], errors='coerce').fillna(0) if col_dry_cont_raw in df_rep_raw.columns else 0
@@ -448,7 +409,6 @@ def render_dashboard(selected_key):
             if date_col:
                 df_ft = df.copy()
                 df_ft[date_col] = pd.to_datetime(df_ft[date_col])
-                # Re-apply calcs
                 for col, raw_col in [('pos_house_calc', col_pos_house_raw), ('pos_cont_calc', col_pos_cont_raw), ('wet_cont_calc', col_wet_cont_raw)]:
                     df_ft[col] = pd.to_numeric(df_ft[raw_col], errors='coerce').fillna(0) if raw_col in df_ft.columns else 0
                 df_ft['dry_cont_calc'] = pd.to_numeric(df_ft[col_dry_cont_raw], errors='coerce').fillna(0) if col_dry_cont_raw in df_ft.columns else 0
@@ -463,7 +423,6 @@ def render_dashboard(selected_key):
                     st.dataframe(ft_rep, hide_index=True)
                     st.download_button("Download Excel", to_excel(ft_rep), "Fortnightly.xlsx")
 
-    # --- GRAPHS ---
     if show_graphs:
         with st.expander("📊 View Graphs", expanded=True):
             def get_grouped_data(groupby_col):
@@ -481,7 +440,6 @@ def render_dashboard(selected_key):
             if col_zone in df_for_graphs.columns:
                 st.plotly_chart(plot_metric_bar(get_grouped_data(col_zone), col_zone, 'HI', f"{label_hi} by Zone", 'HI'), use_container_width=True)
 
-    # --- MAP ---
     with st.expander("🌍 Map", expanded=False):
         if col_lat in df_for_graphs.columns and col_lon in df_for_graphs.columns:
             map_df = df_for_graphs.dropna(subset=[col_lat, col_lon]).copy()
@@ -492,26 +450,19 @@ def render_dashboard(selected_key):
                     folium.CircleMarker([row[col_lat], row[col_lon]], radius=6, color=color, fill=True, fill_color=color).add_to(m)
                 st_folium(m, height=400)
 
-    # --- LARVAE ID TABLE ---
     with st.expander("🔬 Larvae Identification Data", expanded=False):
         df_id = load_kobo_data(current_config['id_url'])
         if not df_id.empty:
             st.dataframe(df_id, use_container_width=True)
         else: st.info("No ID Data")
 
-    # --- EXECUTIVE SUMMARY (NEWLY ADDED) ---
     st.divider()
     summary_text = generate_narrative_summary(df_filtered, selected_key, date_col, col_street, col_subzone, col_premises)
     st.markdown(summary_text)
 
-# --- HOME PAGE LOGIC (UPDATED WITH FULL BACKGROUND & PUSHED CONTENT) ---
-def get_base64_of_bin_file(bin_file):
-    with open(bin_file, 'rb') as f:
-        data = f.read()
-    return base64.b64encode(data).decode()
-
+# --- HOME PAGE LOGIC ---
 def render_home_page():
-    # 1. SET FULL BACKGROUND IMAGE USING CSS
+    # 1. CSS for Background + Container Position
     try:
         bin_str = get_base64_of_bin_file("logo.png")
         page_bg_img = f"""
@@ -523,14 +474,12 @@ def render_home_page():
             background-repeat: no-repeat;
             background-attachment: fixed;
         }}
-        /* Push the content down to the bottom half and style it */
         .block-container {{
-            background-color: rgba(255, 255, 255, 0.85);
+            background-color: rgba(255, 255, 255, 0.90);
             border-radius: 20px;
             padding: 2rem;
             max-width: 800px;
             margin: auto;
-            /* The key change: Push it down 45% of view height */
             margin-top: 45vh; 
         }}
         </style>
@@ -539,23 +488,26 @@ def render_home_page():
     except:
         st.warning("Background image 'logo.png' not found on GitHub.")
 
-    # 2. HEADER AND BUTTONS
-    st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>AIRPORT HEALTH ORGANISATION</h1>", unsafe_allow_html=True)
-    st.markdown("<h3 style='text-align: center; color: #1E3A8A;'>TIRUCHIRAPPALLI INTERNATIONAL AIRPORT</h3>", unsafe_allow_html=True)
+    # 2. CHECK PASSWORD
+    is_authenticated = check_password_on_home()
     
-    st.divider()
-    
-    # Center buttons using columns with offsets
-    _, col_buttons, _ = st.columns([1, 2, 1])
-    with col_buttons:
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🦟 Outside Field Activities (Peri)", use_container_width=True, type="primary"):
-            st.session_state['page'] = 'peri'
-            st.rerun()
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("✈️ Inside Field Activities (Intra)", use_container_width=True, type="primary"):
-            st.session_state['page'] = 'intra'
-            st.rerun()
+    # 3. SHOW CONTENT ONLY IF AUTHENTICATED
+    if is_authenticated:
+        st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>AIRPORT HEALTH ORGANISATION</h1>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align: center; color: #1E3A8A;'>TIRUCHIRAPPALLI INTERNATIONAL AIRPORT</h3>", unsafe_allow_html=True)
+        
+        st.divider()
+        
+        _, col_buttons, _ = st.columns([1, 2, 1])
+        with col_buttons:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🦟 Outside Field Activities (Peri)", use_container_width=True, type="primary"):
+                st.session_state['page'] = 'peri'
+                st.rerun()
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("✈️ Inside Field Activities (Intra)", use_container_width=True, type="primary"):
+                st.session_state['page'] = 'intra'
+                st.rerun()
 
 # --- APP ENTRY POINT ---
 if 'page' not in st.session_state:
@@ -564,4 +516,9 @@ if 'page' not in st.session_state:
 if st.session_state['page'] == 'home':
     render_home_page()
 else:
-    render_dashboard(st.session_state['page'])
+    # Double check auth before showing dashboard (prevents direct url access if possible)
+    if st.session_state.get("password_correct", False):
+        render_dashboard(st.session_state['page'])
+    else:
+        st.session_state['page'] = 'home'
+        st.rerun()
