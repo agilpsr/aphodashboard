@@ -80,9 +80,6 @@ with st.spinner('Fetching data...'):
 
 # --- HELPER FUNCTION FOR GRAPHS ---
 def plot_metric_bar(data, x_col, y_col, title, color_col):
-    """
-    Creates a bar chart with Green->Red gradient based on risk level.
-    """
     fig = px.bar(
         data, x=x_col, y=y_col, 
         title=title, text=y_col,
@@ -101,9 +98,6 @@ if not df.empty:
     col_zone = col_map.get('zone') or col_map.get('zone_name')
     col_subzone = col_map.get('subzone') or col_map.get('sub_zone')
     col_street = col_map.get('streetname') or col_map.get('street_name')
-    
-    # Try to find the premises column for Intra-Airport
-    # Looking for 'Premises', 'premises', 'Location', etc.
     col_premises = col_map.get('premises') or col_map.get('premise') or col_map.get('location')
     
     col_pos_house_raw = "Among_the_wet_containers_how_"
@@ -167,62 +161,67 @@ if not df.empty:
     # --- D. LOGIC BRANCHING (Intra vs Peri) ---
     
     if selected_key == 'inside':
-        # --- INTRA-AIRPORT DEDUPLICATION LOGIC ---
+        # --- INTRA-AIRPORT UNIQUE ID LOGIC ---
         if col_premises and date_col:
-            # We must group by Date AND Premise to count unique daily visits
-            # We aggregate:
-            # - pos_house_calc: We take MAX. If any entry that day was positive (>0), the premise is positive.
-            # - pos_cont_calc: We take SUM. All positive containers found count towards Breteau.
-            # - wet_cont_calc: We take SUM.
-            # - zone: We take 'first' just to keep the label for graphing
+            # 1. Create the EXACT Looker Studio Key: Date + Premises
+            # We strip time from date, and strip whitespace from premises to be safe
+            df_filtered['date_str_only'] = df_filtered[date_col].dt.date.astype(str)
+            df_filtered['premise_clean'] = df_filtered[col_premises].astype(str).str.strip().str.upper()
+            df_filtered['unique_premise_id'] = df_filtered['date_str_only'] + "_" + df_filtered['premise_clean']
             
+            # 2. Group by this Unique ID to consolidate multiple entries for the same place/day
+            # Logic: 
+            # - If ANY entry for this ID is positive, the premise is positive (max)
+            # - We SUM all containers found across entries (assuming different spots in same premise)
             agg_dict = {
                 'pos_house_calc': 'max',
                 'pos_cont_calc': 'sum',
                 'wet_cont_calc': 'sum'
             }
             if col_zone in df_filtered.columns:
-                agg_dict[col_zone] = 'first'
+                agg_dict[col_zone] = 'first' # Keep zone label
                 
-            # Create a clean grouped dataframe
-            df_grouped = df_filtered.groupby([date_col, col_premises], as_index=False).agg(agg_dict)
+            df_grouped = df_filtered.groupby('unique_premise_id', as_index=False).agg(agg_dict)
             
-            # Now we calculate based on this DEDUPED dataframe
-            total_entries = len(df_grouped) # This is now Unique Premises Count
+            # 3. Calculate Metrics on the GROUPED (Unique) Data
+            total_unique_premises = df_grouped['unique_premise_id'].nunique()
             
             # Premises Index (PI)
-            positive_premises = (df_grouped['pos_house_calc'] > 0).sum()
-            hi_val = (positive_premises / total_entries * 100) if total_entries > 0 else 0
+            positive_premises_count = (df_grouped['pos_house_calc'] > 0).sum()
+            hi_val = (positive_premises_count / total_unique_premises * 100) if total_unique_premises > 0 else 0
             
-            # Container Index (CI)
+            # Container Index (CI) - Std Calculation
             total_pos_cont = df_grouped['pos_cont_calc'].sum()
             total_wet_cont = df_grouped['wet_cont_calc'].sum()
             ci_val = (total_pos_cont / total_wet_cont * 100) if total_wet_cont > 0 else 0
             
             # Breteau Index (BI) - Denominator is UNIQUE PREMISES
-            bi_val = (total_pos_cont / total_entries * 100) if total_entries > 0 else 0
+            bi_val = (total_pos_cont / total_unique_premises * 100) if total_unique_premises > 0 else 0
             
-            # Use the grouped dataframe for graphing
+            # Prepare data for graphs
             df_for_graphs = df_grouped.copy()
             df_for_graphs['is_positive_premise'] = (df_for_graphs['pos_house_calc'] > 0).astype(int)
+            
+            # For display purposes
+            display_count = total_unique_premises
 
         else:
-            st.warning("⚠️ Could not find 'Premises' or 'Date' column to perform unique premise calculation.")
-            total_entries = len(df_filtered)
+            st.warning("⚠️ Could not find 'Premises' or 'Date' column. Using standard row count.")
+            display_count = len(df_filtered)
             hi_val, ci_val, bi_val = 0, 0, 0
             df_for_graphs = df_filtered.copy()
 
     else:
         # --- PERI-AIRPORT (STANDARD) LOGIC ---
-        total_entries = len(df_filtered)
+        display_count = len(df_filtered)
         df_filtered['is_positive_house'] = df_filtered['pos_house_calc'].apply(lambda x: 1 if x > 0 else 0)
         
-        if total_entries > 0:
-            hi_val = (df_filtered['is_positive_house'].sum() / total_entries) * 100
+        if display_count > 0:
+            hi_val = (df_filtered['is_positive_house'].sum() / display_count) * 100
             total_pos_cont = df_filtered['pos_cont_calc'].sum()
             total_wet_cont = df_filtered['wet_cont_calc'].sum()
             ci_val = (total_pos_cont / total_wet_cont * 100) if total_wet_cont > 0 else 0
-            bi_val = (total_pos_cont / total_entries * 100)
+            bi_val = (total_pos_cont / display_count * 100)
         else:
             hi_val, ci_val, bi_val = 0, 0, 0
             
@@ -233,7 +232,7 @@ if not df.empty:
     label_entries = "Unique Premises" if selected_key == 'inside' else "Total Entries"
     
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric(label_entries, total_entries)
+    m1.metric(label_entries, display_count)
     m2.metric(label_hi, f"{hi_val:.2f}")
     m3.metric("Container Index (CI)", f"{ci_val:.2f}")
     m4.metric("Breteau Index (BI)", f"{bi_val:.2f}")
@@ -244,11 +243,9 @@ if not df.empty:
     
     if show_graphs and selected_key in ['outside', 'inside']:
         
-        # Logic to hide graphs based on drill-down
         show_zone_graph = (len(selected_zones) == 0) and (len(selected_subzones) == 0)
         show_subzone_graph = (len(selected_subzones) == 0)
 
-        # Unified Grouping Function that handles both Normal and Grouped Data
         def get_grouped_data(groupby_col):
             # Define aggregations based on columns available in df_for_graphs
             aggs = {
@@ -256,10 +253,10 @@ if not df.empty:
                 'wet_cont_calc': 'sum',
             }
             
-            # Count logic depends on whether we are already grouped
+            # If we are INSIDE, df_for_graphs is already deduped. 
+            # Counting rows = Counting Unique Premises
             if selected_key == 'inside':
-                # For inside, we count the rows of the grouped dataframe (which are unique premises)
-                aggs[groupby_col] = 'count'
+                aggs[groupby_col] = 'count' # This counts the unique premises in that zone
                 aggs['is_positive_premise'] = 'sum'
             else:
                 aggs[groupby_col] = 'count'
