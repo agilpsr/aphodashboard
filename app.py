@@ -51,33 +51,30 @@ def load_kobo_data(url):
         st.error(f"Error loading data: {e}")
         return pd.DataFrame()
 
-# --- 4. NAVIGATION ---
+# --- 4. NAVIGATION & CONFIGURATION ---
+# Refactored: Now we have 2 main sections, each has a Surveillance URL and an ID URL
 SECTION_CONFIG = {
-    'outside': {
+    'peri': {
         'title': 'Peri-Airport Larvae Surveillance',
-        'url': 'https://kf.kobotoolbox.org/api/v2/assets/aXM5aSjVEJTgt6z5qMvNFe/export-settings/es9zUAYU5f8PqCokaZSuPmg/data.csv'
+        'surv_url': 'https://kf.kobotoolbox.org/api/v2/assets/aXM5aSjVEJTgt6z5qMvNFe/export-settings/es9zUAYU5f8PqCokaZSuPmg/data.csv',
+        'id_url': 'https://kf.kobotoolbox.org/api/v2/assets/afU6pGvUzT8Ao4pAeX54QY/export-settings/esinGxnSujLzanzmAv6Mdb4/data.csv'
     },
-    'inside': {
+    'intra': {
         'title': 'Intra-Airport Larvae Surveillance',
-        'url': 'https://kf.kobotoolbox.org/api/v2/assets/aEdcSxvmrBuXBmzXNECtjr/export-settings/esgYdEaEk79Y69k56abNGdW/data.csv'
-    },
-    'outid': {
-        'title': 'Peri-Airport Larvae Identification',
-        'url': 'https://kf.kobotoolbox.org/api/v2/assets/afU6pGvUzT8Ao4pAeX54QY/export-settings/esinGxnSujLzanzmAv6Mdb4/data.csv'
-    },
-    'inid': {
-        'title': 'Intra-Airport Larvae Identification',
-        'url': 'https://kf.kobotoolbox.org/api/v2/assets/anN9HTYvmLRTorb7ojXs5A/export-settings/esDnrutbSWfn8AbieZSqzdV/data.csv'
+        'surv_url': 'https://kf.kobotoolbox.org/api/v2/assets/aEdcSxvmrBuXBmzXNECtjr/export-settings/esgYdEaEk79Y69k56abNGdW/data.csv',
+        'id_url': 'https://kf.kobotoolbox.org/api/v2/assets/anN9HTYvmLRTorb7ojXs5A/export-settings/esDnrutbSWfn8AbieZSqzdV/data.csv'
     }
 }
 
 st.sidebar.header("Navigation")
+# Simplified Radio Button (Just Peri vs Intra)
 selected_key = st.sidebar.radio("Select Report:", list(SECTION_CONFIG.keys()), format_func=lambda x: SECTION_CONFIG[x]['title'])
 current_config = SECTION_CONFIG[selected_key]
 st.title(current_config['title'])
 
-with st.spinner('Fetching data...'):
-    df = load_kobo_data(current_config['url'])
+# --- 5. LOAD SURVEILLANCE DATA ---
+with st.spinner('Fetching Surveillance data...'):
+    df = load_kobo_data(current_config['surv_url'])
 
 # --- HELPER FUNCTION FOR GRAPHS ---
 def plot_metric_bar(data, x_col, y_col, title, color_col):
@@ -96,11 +93,10 @@ def plot_metric_bar(data, x_col, y_col, title, color_col):
 def normalize_string(text):
     if pd.isna(text):
         return ""
-    # Lowercase + Regex replace anything not a-z or 0-9
     return re.sub(r'[^a-z0-9]', '', str(text).lower())
 
 if not df.empty:
-    # --- A. CLEANING & MAPPING ---
+    # --- A. CLEANING & MAPPING (SURVEILLANCE) ---
     col_map_lower = {c.lower(): c for c in df.columns}
     
     col_zone = col_map_lower.get('zone') or col_map_lower.get('zone_name')
@@ -129,6 +125,7 @@ if not df.empty:
     df_filtered = df.copy()
 
     # Apply Date Filter
+    start_date, end_date = None, None
     if date_col:
         df_filtered[date_col] = pd.to_datetime(df_filtered[date_col])
         min_date = df_filtered[date_col].min().date()
@@ -176,26 +173,18 @@ if not df.empty:
         df_filtered['wet_cont_calc'] = pd.to_numeric(df_filtered[col_wet_cont_raw], errors='coerce').fillna(0)
 
     # --- D. LOGIC BRANCHING ---
-    
-    # Initialize variables to avoid scope errors
     display_count = 0
     positive_count = 0
     hi_val = 0
     ci_val = 0
     bi_val = 0
 
-    if selected_key == 'inside':
+    if selected_key == 'intra':
         if col_premises and date_col:
-            # 1. Create Key Part 1: Date String
             df_filtered['date_str_only'] = df_filtered[date_col].dt.date.astype(str)
-            
-            # 2. Create Key Part 2: CLEANED Premise Name
             df_filtered['premise_clean'] = df_filtered[col_premises].apply(normalize_string)
-            
-            # 3. Create Unique ID
             df_filtered['unique_premise_id'] = df_filtered['date_str_only'] + "_" + df_filtered['premise_clean']
             
-            # 4. Group by this Unique ID
             agg_dict = {
                 'pos_house_calc': 'max',
                 'pos_cont_calc': 'sum',
@@ -206,10 +195,8 @@ if not df.empty:
                 
             df_grouped = df_filtered.groupby('unique_premise_id', as_index=False).agg(agg_dict)
             
-            # 5. Calculate Metrics (INTRA)
             total_unique_premises = df_grouped['unique_premise_id'].nunique()
             positive_premises_count = (df_grouped['pos_house_calc'] > 0).sum()
-            
             hi_val = (positive_premises_count / total_unique_premises * 100) if total_unique_premises > 0 else 0
             
             total_pos_cont = df_grouped['pos_cont_calc'].sum()
@@ -223,40 +210,33 @@ if not df.empty:
             
             display_count = total_unique_premises
             positive_count = positive_premises_count
-
         else:
             st.warning("⚠️ Could not find 'Premises' or 'Date' column.")
             df_for_graphs = df_filtered.copy()
 
     else:
-        # --- PERI-AIRPORT (STANDARD) ---
+        # --- PERI-AIRPORT ---
         display_count = len(df_filtered)
         df_filtered['is_positive_house'] = df_filtered['pos_house_calc'].apply(lambda x: 1 if x > 0 else 0)
-        
         positive_count = df_filtered['is_positive_house'].sum()
         
         if display_count > 0:
             hi_val = (positive_count / display_count) * 100
-            
             total_pos_cont = df_filtered['pos_cont_calc'].sum()
             total_wet_cont = df_filtered['wet_cont_calc'].sum()
             ci_val = (total_pos_cont / total_wet_cont * 100) if total_wet_cont > 0 else 0
-            
             bi_val = (total_pos_cont / display_count * 100)
-            
+        
         df_for_graphs = df_filtered.copy()
 
     # --- E. TOP METRICS DISPLAY ---
-    # Metric Labels
-    label_hi = "Premises Index (PI)" if selected_key == 'inside' else "House Index (HI)"
-    label_entries = "Unique Premises" if selected_key == 'inside' else "Total Entries"
-    label_positive = "Positive Premises" if selected_key == 'inside' else "Positive Houses"
+    label_hi = "Premises Index (PI)" if selected_key == 'intra' else "House Index (HI)"
+    label_entries = "Unique Premises" if selected_key == 'intra' else "Total Entries"
+    label_positive = "Positive Premises" if selected_key == 'intra' else "Positive Houses"
     
-    # NEW: 5 Columns to include the Positive Count
     m1, m2, m3, m4, m5 = st.columns(5)
-    
     m1.metric(label_entries, display_count)
-    m2.metric(label_positive, positive_count)  # <--- NEW ADDITION
+    m2.metric(label_positive, positive_count)
     m3.metric(label_hi, f"{hi_val:.2f}")
     m4.metric("Container Index (CI)", f"{ci_val:.2f}")
     m5.metric("Breteau Index (BI)", f"{bi_val:.2f}")
@@ -265,17 +245,13 @@ if not df.empty:
     st.divider()
     show_graphs = st.toggle("Show Graphical Analysis", value=False)
     
-    if show_graphs and selected_key in ['outside', 'inside']:
-        
+    if show_graphs:
         show_zone_graph = (len(selected_zones) == 0) and (len(selected_subzones) == 0)
         show_subzone_graph = (len(selected_subzones) == 0)
 
         def get_grouped_data(groupby_col):
-            aggs = {
-                'pos_cont_calc': 'sum',
-                'wet_cont_calc': 'sum',
-            }
-            if selected_key == 'inside':
+            aggs = {'pos_cont_calc': 'sum', 'wet_cont_calc': 'sum'}
+            if selected_key == 'intra':
                 aggs[groupby_col] = 'count'
                 aggs['is_positive_premise'] = 'sum'
             else:
@@ -284,50 +260,38 @@ if not df.empty:
 
             g = df_for_graphs.groupby(groupby_col).agg(aggs).rename(columns={groupby_col: 'Denominator'})
             
-            if selected_key == 'inside':
+            if selected_key == 'intra':
                 g['HI'] = (g['is_positive_premise'] / g['Denominator']) * 100
             else:
                 g['HI'] = (g['is_positive_house'] / g['Denominator']) * 100
                 
             g['CI'] = (g['pos_cont_calc'] / g['wet_cont_calc'].replace(0, 1)) * 100 
             g['BI'] = (g['pos_cont_calc'] / g['Denominator']) * 100
-            
             return g.reset_index()
 
         with st.expander(f"📊 View {label_hi} Graphs"):
             st.info("Vector Density: Percentage of houses/premises found positive.")
             if show_zone_graph and col_zone in df_for_graphs.columns:
-                data_z = get_grouped_data(col_zone)
-                st.plotly_chart(plot_metric_bar(data_z, col_zone, 'HI', f"{label_hi} by Zone", 'HI'), use_container_width=True)
-
-            if selected_key == 'outside':
+                st.plotly_chart(plot_metric_bar(get_grouped_data(col_zone), col_zone, 'HI', f"{label_hi} by Zone", 'HI'), use_container_width=True)
+            if selected_key == 'peri':
                 if show_subzone_graph and col_subzone in df_for_graphs.columns:
-                    data_s = get_grouped_data(col_subzone)
-                    st.plotly_chart(plot_metric_bar(data_s, col_subzone, 'HI', f"{label_hi} by SubZone", 'HI'), use_container_width=True)
+                    st.plotly_chart(plot_metric_bar(get_grouped_data(col_subzone), col_subzone, 'HI', f"{label_hi} by SubZone", 'HI'), use_container_width=True)
                 if col_street in df_for_graphs.columns:
                     st.plotly_chart(plot_metric_bar(get_grouped_data(col_street), col_street, 'HI', f"{label_hi} by Street", 'HI'), use_container_width=True)
 
         with st.expander("📊 View Container Index (CI) Graphs"):
             st.info("Breeding Preference: Percentage of wet containers found positive.")
             if show_zone_graph and col_zone in df_for_graphs.columns:
-                data_z = get_grouped_data(col_zone)
-                st.plotly_chart(plot_metric_bar(data_z, col_zone, 'CI', "Container Index by Zone", 'CI'), use_container_width=True)
-            if selected_key == 'outside' and show_subzone_graph and col_subzone in df_for_graphs.columns:
-                data_s = get_grouped_data(col_subzone)
-                st.plotly_chart(plot_metric_bar(data_s, col_subzone, 'CI', "Container Index by SubZone", 'CI'), use_container_width=True)
-            if selected_key == 'outside' and col_street in df_for_graphs.columns:
-                st.plotly_chart(plot_metric_bar(get_grouped_data(col_street), col_street, 'CI', "Container Index by Street", 'CI'), use_container_width=True)
+                st.plotly_chart(plot_metric_bar(get_grouped_data(col_zone), col_zone, 'CI', "Container Index by Zone", 'CI'), use_container_width=True)
+            if selected_key == 'peri' and show_subzone_graph and col_subzone in df_for_graphs.columns:
+                st.plotly_chart(plot_metric_bar(get_grouped_data(col_subzone), col_subzone, 'CI', "Container Index by SubZone", 'CI'), use_container_width=True)
 
         with st.expander("📊 View Breteau Index (BI) Graphs"):
             st.info("Breeding Risk: Number of positive containers per 100 houses/premises.")
             if show_zone_graph and col_zone in df_for_graphs.columns:
-                data_z = get_grouped_data(col_zone)
-                st.plotly_chart(plot_metric_bar(data_z, col_zone, 'BI', "Breteau Index by Zone", 'BI'), use_container_width=True)
-            if selected_key == 'outside' and show_subzone_graph and col_subzone in df_for_graphs.columns:
-                data_s = get_grouped_data(col_subzone)
-                st.plotly_chart(plot_metric_bar(data_s, col_subzone, 'BI', "Breteau Index by SubZone", 'BI'), use_container_width=True)
-            if selected_key == 'outside' and col_street in df_for_graphs.columns:
-                st.plotly_chart(plot_metric_bar(get_grouped_data(col_street), col_street, 'BI', "Breteau Index by Street", 'BI'), use_container_width=True)
+                st.plotly_chart(plot_metric_bar(get_grouped_data(col_zone), col_zone, 'BI', "Breteau Index by Zone", 'BI'), use_container_width=True)
+            if selected_key == 'peri' and show_subzone_graph and col_subzone in df_for_graphs.columns:
+                st.plotly_chart(plot_metric_bar(get_grouped_data(col_subzone), col_subzone, 'BI', "Breteau Index by SubZone", 'BI'), use_container_width=True)
 
     # --- F. DATA TABLE ---
     st.divider()
@@ -335,18 +299,96 @@ if not df.empty:
         st.dataframe(df_filtered)
 
     # --- G. DEBUG TOOL ---
-    if selected_key == 'inside':
+    if selected_key == 'intra':
         st.divider()
         with st.expander("🐞 Debug Tool (Check Unique IDs)"):
-            st.write("Download this file to check which IDs are being counted.")
             csv = df_grouped.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                "Download Processed Data",
-                csv,
-                "debug_unique_premises.csv",
-                "text/csv",
-                key='download-csv'
+            st.download_button("Download Processed Data", csv, "debug_unique_premises.csv", "text/csv")
+
+    # --- H. LARVAE IDENTIFICATION SECTION ---
+    st.divider()
+    st.markdown("### 🔬 Larvae Identification")
+    
+    with st.expander("View Larvae Identification Data"):
+        # Load ID Data
+        with st.spinner('Fetching ID data...'):
+            df_id = load_kobo_data(current_config['id_url'])
+        
+        if not df_id.empty:
+            # 1. Apply SAME Date Filter as Main Data
+            col_map_id = {c.lower(): c for c in df_id.columns}
+            date_col_id = col_map_id.get('date') or col_map_id.get('today')
+            
+            # Find Address Column
+            col_address_id = col_map_id.get('address') or col_map_id.get('location') or col_map_id.get('premise') or col_map_id.get('premises') or col_map_id.get('streetname')
+            
+            # Use specific columns user requested
+            col_img = "Attach the microscopic image of the larva_URL"
+            col_genus = "Select the Genus:"
+            col_species = "Select the Species:"
+            
+            if date_col_id:
+                df_id[date_col_id] = pd.to_datetime(df_id[date_col_id])
+                if start_date and end_date: # From sidebar
+                    mask_id = (df_id[date_col_id].dt.date >= start_date) & (df_id[date_col_id].dt.date <= end_date)
+                    df_id = df_id.loc[mask_id]
+            
+            # 2. Select & Rename Columns
+            # We construct the final table
+            final_cols = []
+            
+            # Address
+            if col_address_id and col_address_id in df_id.columns:
+                final_cols.append(col_address_id)
+            else:
+                df_id['Address'] = 'N/A'
+                final_cols.append('Address')
+                
+            # Date
+            if date_col_id and date_col_id in df_id.columns:
+                df_id['Date'] = df_id[date_col_id].dt.date
+                final_cols.append('Date')
+                
+            # Image
+            if col_img in df_id.columns:
+                final_cols.append(col_img)
+                
+            # Genus
+            if col_genus in df_id.columns:
+                final_cols.append(col_genus)
+                
+            # Species
+            if col_species in df_id.columns:
+                final_cols.append(col_species)
+                
+            # Create Subset
+            df_display = df_id[final_cols].copy()
+            
+            # Add Serial Number
+            df_display.insert(0, 'Serial No', range(1, 1 + len(df_display)))
+            
+            # Rename for display
+            rename_map = {
+                col_address_id: 'Address',
+                col_img: 'Image of Larva',
+                col_genus: 'Genus',
+                col_species: 'Species'
+            }
+            df_display = df_display.rename(columns=rename_map)
+            
+            # 3. Display with Image Column Configuration
+            st.dataframe(
+                df_display,
+                column_config={
+                    "Image of Larva": st.column_config.ImageColumn(
+                        "Image of Larva", help="Microscopic Image"
+                    )
+                },
+                hide_index=True,
+                use_container_width=True
             )
+        else:
+            st.info("No identification data available.")
 
 else:
     st.info("No data found. Please check your Kobo connection or selection.")
