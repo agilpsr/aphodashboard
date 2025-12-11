@@ -90,7 +90,6 @@ def get_high_res_url(original_url):
 
 @st.dialog("🔬 Larvae Microscopic View", width="large")
 def show_image_popup(row_data):
-    # SPECIFIC COLUMN NAMES AS REQUESTED
     col_genus = "Select the Genus:"
     col_species = "Select the Species:"
     col_container = "Type of container the sample was collected from"
@@ -446,16 +445,17 @@ def render_dashboard(selected_key):
     with st.expander("🔬 Larvae Identification Data (Click to Expand)", expanded=False):
         df_id = load_kobo_data(current_config['id_url'])
         
+        # --- DEBUG EXPANDER ---
+        with st.expander("🛠️ Debug: View Data Headers"):
+            st.write("Here are the exact column names in your data:")
+            st.write(df_id.columns.tolist())
+        # ---------------------
+
         if not df_id.empty:
-            # 1. Map Columns
             col_map_id = {c.lower(): c for c in df_id.columns}
             date_col_id = next((c for c in df_id.columns if c in ['Date', 'today', 'date']), None)
-            
-            # Address mapping
             addr_cols = ['address', 'location', 'premise', 'premises', 'streetname']
             col_address_id = next((col_map_id.get(k) for k in addr_cols if col_map_id.get(k)), 'N/A')
-            
-            # Image URL mapping
             img_search = ["Attach the microscopic image of the larva _URL", "Attach the microscopic image of the larva_URL", "image_url", "url"]
             col_img = next((c for c in img_search if c in df_id.columns), None)
             
@@ -465,7 +465,6 @@ def render_dashboard(selected_key):
             col_container = "Type of container the sample was collected from"
             col_submitted = "_submitted_by"
 
-            # 2. Process Data
             if date_col_id: df_id[date_col_id] = pd.to_datetime(df_id[date_col_id])
             df_display = pd.DataFrame()
             df_display['Date'] = df_id[date_col_id].dt.date if date_col_id else 'N/A'
@@ -473,7 +472,6 @@ def render_dashboard(selected_key):
             df_display['Genus'] = df_id[col_genus] if col_genus in df_id.columns else 'N/A'
             df_display['Species'] = df_id[col_species] if col_species in df_id.columns else 'N/A'
             
-            # Create Thumbnail Column
             if col_img:
                 df_display['Thumbnail'] = df_id[col_img].apply(get_thumbnail_url)
                 df_id['Original_Image_URL'] = df_id[col_img]
@@ -481,18 +479,14 @@ def render_dashboard(selected_key):
                 df_display['Thumbnail'] = None
                 df_id['Original_Image_URL'] = None
 
-            # Add index as S.No
             df_display = df_display.reset_index(drop=True)
             df_display.index += 1
             df_display.index.name = "S.No"
             df_display = df_display.reset_index()
-
-            # Align for popup data
             df_id['Calculated_Address'] = df_display['Address']
             
             st.info("💡 Click on a row to view full details and image.")
             
-            # 3. Display Interactive Table
             event = st.dataframe(
                 df_display,
                 column_order=["S.No", "Date", "Address", "Thumbnail", "Genus", "Species"],
@@ -505,7 +499,6 @@ def render_dashboard(selected_key):
                 selection_mode="single-row"
             )
 
-            # 4. Handle Popup
             if len(event.selection.rows) > 0:
                 selected_index = event.selection.rows[0]
                 original_row = df_id.iloc[selected_index]
@@ -513,10 +506,7 @@ def render_dashboard(selected_key):
 
             st.divider()
             
-            # --- 3 PIE CHARTS (GENUS, CONTAINER, USERNAME) ---
             c1, c2, c3 = st.columns(3)
-            
-            # Chart 1: Genus
             with c1:
                 if col_genus in df_id.columns:
                     st.write("#### Genus")
@@ -526,26 +516,21 @@ def render_dashboard(selected_key):
                     st.plotly_chart(fig_g, use_container_width=True)
                 else: st.info("Genus data missing")
 
-            # Chart 2: Container
             with c2:
                 if col_container in df_id.columns:
                     st.write("#### Container")
-                    # Filter out empties
                     cont_data = df_id[df_id[col_container].notna() & (df_id[col_container] != "")]
                     cont_counts = cont_data[col_container].value_counts().reset_index()
                     cont_counts.columns = ['Container', 'Count']
                     fig_c = px.pie(cont_counts, values='Count', names='Container', hole=0.4)
                     st.plotly_chart(fig_c, use_container_width=True)
-                else: st.info("Container data missing")
+                else: st.info(f"Container data missing. Looked for: '{col_container}'")
 
-            # Chart 3: Submitted By (Username)
             with c3:
                 if col_submitted in df_id.columns:
                     st.write("#### Submitted By")
                     user_counts = df_id[col_submitted].value_counts().reset_index()
                     user_counts.columns = ['User', 'Count']
-                    # Use Map if you want real names, else raw username
-                    # user_counts['User'] = user_counts['User'].map(STAFF_NAMES).fillna(user_counts['User'])
                     fig_u = px.pie(user_counts, values='Count', names='User', hole=0.4)
                     st.plotly_chart(fig_u, use_container_width=True)
                 else: st.info("User data missing")
@@ -570,14 +555,12 @@ def render_dashboard(selected_key):
             total_searched = staff_group['wet_cont_calc'].sum()
             staff_perf['Container Index'] = (staff_perf['Positive Containers'] / total_searched.replace(0, 1) * 100).round(2)
             
-            # --- REMOVED LARVAE ID LOGIC AS REQUESTED ---
-
             staff_perf = staff_perf.reset_index()
             staff_perf.index += 1
             staff_perf.index.name = 'S.No'
             staff_perf = staff_perf.reset_index()
             
-            # UPDATED COLUMNS: Removed 'Larvae ID Entries'
+            # REMOVED Larvae ID Entries column
             final_cols_staff = ['S.No', 'Name', 'Days Worked', 'Total Entries', 'Positive Found', 'Positive Containers', 'Container Index']
             
             staff_final = staff_perf[[c for c in final_cols_staff if c in staff_perf.columns]]
@@ -599,7 +582,6 @@ def render_dashboard(selected_key):
                 sel_mon = st.selectbox("Select Month:", sorted(df_rep_raw['Month_Year'].unique(), reverse=True))
                 if sel_mon:
                     df_m = df_rep_raw[df_rep_raw['Month_Year'] == sel_mon].copy()
-                    # Call global function
                     rep_df = generate_report_df(df_m, date_col, col_username, selected_key, col_premises, col_subzone, col_street, current_config)
                     st.dataframe(rep_df, hide_index=True)
                     st.download_button("Download Excel", to_excel(rep_df), "Monthly.xlsx")
@@ -619,7 +601,6 @@ def render_dashboard(selected_key):
                 sel_ft = st.selectbox("Select Fortnight:", df_ft['Label'].unique())
                 if sel_ft:
                     df_sft = df_ft[df_ft['Label'] == sel_ft].copy()
-                    # Call global function
                     ft_rep = generate_report_df(df_sft, date_col, col_username, selected_key, col_premises, col_subzone, col_street, current_config)
                     st.dataframe(ft_rep, hide_index=True)
                     st.download_button("Download Excel", to_excel(ft_rep), "Fortnightly.xlsx")
