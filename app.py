@@ -92,7 +92,7 @@ def get_high_res_url(original_url):
 def show_image_popup(row_data):
     col_genus = "Select the Genus:"
     col_species = "Select the Species:"
-    col_container = "Type of container the sample was collected from "
+    col_container = "Type of container the sample was collected from"
     col_submitted = "_submitted_by"
     
     genus = row_data.get(col_genus, 'N/A')
@@ -142,7 +142,7 @@ def generate_report_df(df_source, date_col, col_username, selected_key, col_prem
         elif selected_key == 'peri' and col_subzone and col_subzone in df_day:
             loc_list = ", ".join(df_day[col_subzone].dropna().unique().astype(str))
         if col_street and col_street in df_day.columns:
-            street_list = ", ".join(df_day[col_street].dropna().astype(str).unique())
+            street_list = ", ".join(df_day[col_street].dropna().unique().astype(str))
             
         d_dry = df_day['dry_cont_calc'].sum()
         d_wet = df_day['wet_cont_calc'].sum()
@@ -459,18 +459,29 @@ def render_dashboard(selected_key):
             img_search = ["Attach the microscopic image of the larva _URL", "Attach the microscopic image of the larva_URL", "image_url", "url"]
             col_img = next((c for c in img_search if c in df_id.columns), None)
             
-            # Key Columns - Explicit Names
-            col_genus = "Select the Genus:"
-            col_species = "Select the Species:"
-            col_container = "Type of container the sample was collected from "
-            col_submitted = "_submitted_by"
+            # Key Columns - Explicit Names (Trimmed for robust lookup)
+            COL_GENUS = "Select the Genus:".strip()
+            COL_SPECIES = "Select the Species:".strip()
+            COL_CONTAINER = "Type of container the sample was collected from".strip()
+            COL_SUBMITTED = "_submitted_by".strip()
+            
+            # --- FIND ACTUAL COLUMN NAMES IN DF ---
+            # Create a dictionary mapping cleaned headers to original headers
+            clean_to_orig = {c.strip(): c for c in df_id.columns}
+
+            # Use the clean map to find the original column name
+            col_genus = clean_to_orig.get(COL_GENUS)
+            col_species = clean_to_orig.get(COL_SPECIES)
+            col_container = clean_to_orig.get(COL_CONTAINER)
+            col_submitted = clean_to_orig.get(COL_SUBMITTED)
+            # --------------------------------------
 
             if date_col_id: df_id[date_col_id] = pd.to_datetime(df_id[date_col_id])
             df_display = pd.DataFrame()
             df_display['Date'] = df_id[date_col_id].dt.date if date_col_id else 'N/A'
             df_display['Address'] = df_id[col_address_id] if col_address_id != 'N/A' else 'N/A'
-            df_display['Genus'] = df_id[col_genus] if col_genus in df_id.columns else 'N/A'
-            df_display['Species'] = df_id[col_species] if col_species in df_id.columns else 'N/A'
+            df_display['Genus'] = df_id[col_genus] if col_genus else 'N/A'
+            df_display['Species'] = df_id[col_species] if col_species else 'N/A'
             
             if col_img:
                 df_display['Thumbnail'] = df_id[col_img].apply(get_thumbnail_url)
@@ -501,14 +512,18 @@ def render_dashboard(selected_key):
 
             if len(event.selection.rows) > 0:
                 selected_index = event.selection.rows[0]
+                # Pass the original row data with the dynamically found keys
                 original_row = df_id.iloc[selected_index]
                 show_image_popup(original_row)
 
             st.divider()
             
+            # --- 3 PIE CHARTS (GENUS, CONTAINER, USERNAME) ---
             c1, c2, c3 = st.columns(3)
+            
+            # Chart 1: Genus
             with c1:
-                if col_genus in df_id.columns:
+                if col_genus:
                     st.write("#### Genus")
                     genus_counts = df_id[col_genus].value_counts().reset_index()
                     genus_counts.columns = ['Genus', 'Count']
@@ -516,18 +531,20 @@ def render_dashboard(selected_key):
                     st.plotly_chart(fig_g, use_container_width=True)
                 else: st.info("Genus data missing")
 
+            # Chart 2: Container (FIXED)
             with c2:
-                if col_container in df_id.columns:
+                if col_container:
                     st.write("#### Container")
-                    cont_data = df_id[df_id[col_container].notna() & (df_id[col_container] != "")]
-                    cont_counts = cont_data[col_container].value_counts().reset_index()
+                    cont_data = df_id[col_container].dropna()
+                    cont_counts = cont_data.value_counts().reset_index()
                     cont_counts.columns = ['Container', 'Count']
                     fig_c = px.pie(cont_counts, values='Count', names='Container', hole=0.4)
                     st.plotly_chart(fig_c, use_container_width=True)
-                else: st.info(f"Container data missing. Looked for: '{col_container}'")
+                else: st.info(f"Container data missing. Looked for: '{COL_CONTAINER}'")
 
+            # Chart 3: Submitted By (Username)
             with c3:
-                if col_submitted in df_id.columns:
+                if col_submitted:
                     st.write("#### Submitted By")
                     user_counts = df_id[col_submitted].value_counts().reset_index()
                     user_counts.columns = ['User', 'Count']
