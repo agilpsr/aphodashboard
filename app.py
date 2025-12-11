@@ -459,7 +459,7 @@ def render_dashboard(selected_key):
         # 1. Define Clean Targets
         COL_GENUS = "Select the Genus:".strip()
         COL_SPECIES = "Select the Species:".strip()
-        COL_CONTAINER_LABEL = "Type of container in which the sample was collected from".strip() # Target (Cleaned)
+        COL_CONTAINER_LABEL = "Type of container the sample was collected from"
         COL_SUBMITTED = "_submitted_by".strip()
         
         # 2. Find Actual Column Names (Robust Search - strips all spaces from headers)
