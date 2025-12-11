@@ -367,14 +367,18 @@ def render_dashboard(selected_key):
 
 
         # 2. SUMMARY TABLE CALCULATION
+        st.header("International Flights Screening Data Summary")
         summary_data = []
         total_entries = len(df_filtered)
+        
+        # Row 1: Total Entries
         summary_data.append(["Total International Flights Screened (Total Entries)", total_entries])
         
-        # New Metric: Total Days of Screening
+        # Row 2: Total Days of Screening
         total_days = df_filtered[date_col].dt.date.nunique() if date_col else 'N/A'
         summary_data.append(["Total Days of Screening", total_days])
         
+        # Subsequent Rows: Sum of Other Variables
         numeric_df = df_filtered.select_dtypes(include=['number']).fillna(0)
         exclude_cols = ['_index', 'latitude', 'longitude', 'accuracy', '_id', 'instanceid', 'start', 'end'] 
         
