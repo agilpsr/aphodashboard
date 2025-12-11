@@ -78,46 +78,52 @@ def normalize_string(text):
     return re.sub(r'[^a-z0-9]', '', str(text).lower())
 
 def get_thumbnail_url(original_url):
-    # Uses a proxy to resize images on the fly to 100px width and 60% quality for speed
     if not isinstance(original_url, str) or not original_url.startswith("http"): return None
-    encoded = urllib.parse.quote(original_url)
-    return f"https://wsrv.nl/?url={encoded}&w=100&q=60"
+    # Resize to 100px for the table thumbnail
+    return f"https://wsrv.nl/?url={urllib.parse.quote(original_url)}&w=100&q=60"
 
-@st.dialog("🔬 Larvae Details", width="large")
+@st.dialog("🔬 Larvae Microscopic View", width="large")
 def show_image_popup(row_data):
-    # Mapping for cleaner display labels
+    # Mapping keys - ensure these match your Excel headers exactly
     col_genus = "Select the Genus:"
     col_species = "Select the Species:"
     col_container = "Type of container the sample was collected from"
     col_submitted = "_submitted_by"
     
-    # Extract Data
-    genus = row_data.get(col_genus, 'N/A')
-    species = row_data.get(col_species, 'N/A')
-    container = row_data.get(col_container, 'N/A')
-    submitted_by = row_data.get(col_submitted, 'N/A')
-    address = row_data.get('Calculated_Address', 'N/A')
-    img_url = row_data.get('Original_Image_URL', None)
+    # Extract Data with fallbacks
+    genus = row_data.get(col_genus)
+    species = row_data.get(col_species)
+    container = row_data.get(col_container)
+    submitted_by = row_data.get(col_submitted)
+    address = row_data.get('Calculated_Address') # This comes from our helper column
+    img_url = row_data.get('Original_Image_URL')
 
-    st.subheader(f"{genus} ({species})")
+    # 1. HEADER
+    st.markdown(f"### {genus if pd.notna(genus) else 'Unknown Genus'} ({species if pd.notna(species) else ''})")
     
-    c1, c2 = st.columns([1.5, 1])
+    # 2. FULL WIDTH IMAGE (Maximized Size)
+    if img_url and str(img_url).startswith('http'):
+        # using use_container_width=True inside a large dialog makes it big
+        st.image(img_url, caption="Microscopic View (Full Resolution)", use_container_width=True)
+    else:
+        st.warning("⚠️ No image available for this entry.")
+
+    st.divider()
+
+    # 3. DETAILS ROW (Below Image)
+    k1, k2, k3 = st.columns(3)
     
-    with c1:
-        if img_url and str(img_url).startswith('http'):
-            st.image(img_url, caption="Microscopic View", use_container_width=True)
-        else:
-            st.error("Image not available.")
-            
-    with c2:
-        st.markdown(f"**📍 Address:**")
-        st.info(address)
-        
-        st.markdown(f"**🪣 Container Type:**")
-        st.warning(container)
-        
-        st.markdown(f"**👤 Submitted By:**")
-        st.write(submitted_by)
+    with k1:
+        st.markdown("**📍 Address / Location**")
+        st.info(f"{address if pd.notna(address) else 'N/A'}")
+
+    with k2:
+        st.markdown("**🪣 Container Type**")
+        st.warning(f"{container if pd.notna(container) else 'N/A'}")
+
+    with k3:
+        st.markdown("**👤 Submitted By**")
+        st.success(f"{submitted_by if pd.notna(submitted_by) else 'N/A'}")
 
 def get_base64_of_bin_file(bin_file):
     with open(bin_file, 'rb') as f:
