@@ -264,9 +264,7 @@ def render_dashboard(selected_key):
             df_filtered['unique_premise_id'] = df_filtered[date_col].dt.date.astype(str) + "_" + df_filtered[col_premises].apply(normalize_string)
             agg_dict = {'pos_house_calc': 'max', 'pos_cont_calc': 'sum', 'wet_cont_calc': 'sum', 'dry_cont_calc': 'sum'}
             
-            # --- FIX: Ensure date_col is preserved in aggregation ---
             if date_col: agg_dict[date_col] = 'first'
-            
             for c in [col_zone, col_lat, col_lon, col_premises, col_username]:
                 if c and c in df_filtered.columns: agg_dict[c] = 'first'
             
@@ -393,7 +391,6 @@ def render_dashboard(selected_key):
             img_search = ["Attach the microscopic image of the larva _URL", "Attach the microscopic image of the larva_URL", "image_url", "url"]
             col_img = next((c for c in img_search if c in df_id.columns), None)
             
-            # Key Columns
             col_genus = "Select the Genus:"
             col_species = "Select the Species:"
             col_container = "Type of container the sample was collected from"
@@ -468,90 +465,47 @@ def render_dashboard(selected_key):
         else:
             st.info("No identification data available.")
 
-    # --- REPORT GENERATOR FUNC ---
-    def generate_report_df(df_source, report_period_name):
-        with st.spinner("Fetching Identification Data..."):
-            df_id_rep = load_kobo_data(current_config['id_url'])
-            id_date_col = next((c for c in df_id_rep.columns if 'date' in c.lower() or 'today' in c.lower()), None)
-            if id_date_col:
-                df_id_rep[id_date_col] = pd.to_datetime(df_id_rep[id_date_col])
-                df_id_rep['join_date'] = df_id_rep[id_date_col].dt.date
-        
-        unique_dates = sorted(df_source[date_col].dt.date.unique())
-        report_data = []
-        for i, day in enumerate(unique_dates, 1):
-            df_day = df_source[df_source[date_col].dt.date == day]
-            staffs = ", ".join(df_day[col_username].dropna().unique().astype(str)) if col_username in df_day else ""
-            
-            loc_list = ""
-            street_list = ""
-            if selected_key == 'intra' and col_premises and col_premises in df_day:
-                loc_list = ", ".join(df_day[col_premises].dropna().unique().astype(str))
-            elif selected_key == 'peri' and col_subzone and col_subzone in df_day:
-                loc_list = ", ".join(df_day[col_subzone].dropna().unique().astype(str))
-            if col_street and col_street in df_day.columns:
-                street_list = ", ".join(df_day[col_street].dropna().astype(str).unique())
-                
-            d_dry = df_day['dry_cont_calc'].sum()
-            d_wet = df_day['wet_cont_calc'].sum()
-            
-            if selected_key == 'intra':
-                if col_premises in df_day.columns:
-                    df_day['premise_clean'] = df_day[col_premises].apply(normalize_string)
-                    df_day_grp = df_day.groupby('premise_clean').agg({'pos_house_calc':'max', 'pos_cont_calc':'sum', 'wet_cont_calc':'sum'})
-                    cnt_entries = len(df_day_grp)
-                    cnt_pos = (df_day_grp['pos_house_calc'] > 0).sum()
-                    d_pos_cont = df_day_grp['pos_cont_calc'].sum()
-                    d_wet_sum = df_day_grp['wet_cont_calc'].sum()
-                    idx_hi = (cnt_pos / cnt_entries * 100) if cnt_entries > 0 else 0
-                    idx_ci = (d_pos_cont / d_wet_sum * 100) if d_wet_sum > 0 else 0
-                    idx_bi = (d_pos_cont / cnt_entries * 100) if cnt_entries > 0 else 0
-                else: cnt_entries, cnt_pos, idx_hi, idx_ci, idx_bi = 0, 0, 0, 0, 0
-            else:
-                cnt_entries = len(df_day)
-                cnt_pos = (df_day['pos_house_calc'] > 0).sum()
-                d_pos_cont = df_day['pos_cont_calc'].sum()
-                idx_hi = (cnt_pos / cnt_entries * 100) if cnt_entries > 0 else 0
-                idx_ci = (d_pos_cont / d_wet * 100) if d_wet > 0 else 0
-                idx_bi = (d_pos_cont / cnt_entries * 100) if cnt_entries > 0 else 0
-
-            genus_list = ""
-            if not df_id_rep.empty and 'join_date' in df_id_rep.columns:
-                day_id = df_id_rep[df_id_rep['join_date'] == day]
-                g_col = next((c for c in day_id.columns if "Genus" in c), None)
-                if g_col: genus_list = ", ".join(day_id[g_col].dropna().astype(str).tolist())
-
-            report_data.append({
-                "Serial No": i, "Date": day, "Count": cnt_entries, "Staffs": staffs,
-                "Locations": loc_list, "Streets": street_list, "Dry": int(d_dry), "Wet": int(d_wet),
-                "Positives": int(cnt_pos), "HI/PI": round(idx_hi, 2), "CI": round(idx_ci, 2),
-                "BI": round(idx_bi, 2), "Genuses": genus_list
-            })
-        return pd.DataFrame(report_data)
-
     # --- STAFF PERFORMANCE REPORT (COLLAPSIBLE) ---
     with st.expander("👮 Staff Performance Report (Click to Expand)", expanded=False):
         if col_username in df_filtered.columns:
             staff_group = df_filtered.groupby(col_username)
             staff_perf = pd.DataFrame(staff_group[date_col].apply(lambda x: x.dt.date.nunique()))
             staff_perf.columns = ['Days Worked']
-            def get_staff_name(u): return STAFF_NAMES.get(str(u).strip().lower(), u)
+            
+            def get_staff_name(u):
+                return STAFF_NAMES.get(str(u).strip().lower(), u)
             staff_perf['Name'] = staff_perf.index.map(get_staff_name)
+
             staff_perf['Total Entries'] = staff_group[col_username].count()
             staff_perf['Positive Found'] = staff_group['pos_house_calc'].apply(lambda x: (x > 0).sum())
             staff_perf['Positive Containers'] = staff_group['pos_cont_calc'].sum()
             total_searched = staff_group['wet_cont_calc'].sum()
             staff_perf['Container Index'] = (staff_perf['Positive Containers'] / total_searched.replace(0, 1) * 100).round(2)
+            
+            # --- FIXED LARVAE ID SYNC LOGIC ---
             try:
                 with st.spinner("Syncing Larvae ID Data..."):
                     df_id_sync = load_kobo_data(current_config['id_url'])
-                    if not df_id_sync.empty and col_username in df_id_sync.columns:
-                        df_id_sync['clean_user'] = df_id_sync[col_username].astype(str).str.strip().str.lower()
-                        id_counts = df_id_sync.groupby('clean_user').size().rename('Larvae ID Entries')
+                    
+                    # Identify username column in ID data
+                    id_col_map = {c.lower(): c for c in df_id_sync.columns}
+                    id_user_col = id_col_map.get('username')
+                    
+                    if not df_id_sync.empty and id_user_col:
+                        # Clean usernames in ID data
+                        df_id_sync['clean_user'] = df_id_sync[id_user_col].astype(str).str.strip().str.lower()
+                        id_counts = df_id_sync.groupby('clean_user').size()
+                        
+                        # Clean surveillance usernames (Index)
                         temp_index = staff_perf.index.astype(str).str.strip().str.lower()
+                        
+                        # Map counts
                         staff_perf['Larvae ID Entries'] = temp_index.map(id_counts).fillna(0).astype(int)
-                    else: staff_perf['Larvae ID Entries'] = 0
-            except: staff_perf['Larvae ID Entries'] = 0
+                    else:
+                        staff_perf['Larvae ID Entries'] = 0
+            except:
+                staff_perf['Larvae ID Entries'] = 0
+
             staff_perf = staff_perf.reset_index()
             staff_perf.index += 1
             staff_perf.index.name = 'S.No'
