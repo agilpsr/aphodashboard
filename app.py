@@ -452,6 +452,21 @@ def render_dashboard(selected_key):
         # ---------------------
 
         if not df_id.empty:
+            # 1. Define Clean Targets
+            COL_GENUS = "Select the Genus:".strip()
+            COL_SPECIES = "Select the Species:".strip()
+            COL_CONTAINER_LABEL = "Type of container in which the sample was collected from".strip()
+            COL_SUBMITTED = "_submitted_by".strip()
+
+            # 2. Find Actual Column Names (Robust Search)
+            clean_to_orig_map = {col.strip(): col for col in df_id.columns}
+
+            col_genus = clean_to_orig_map.get(COL_GENUS)
+            col_species = clean_to_orig_map.get(COL_SPECIES)
+            col_container = clean_to_orig_map.get(COL_CONTAINER_LABEL) # FIX IS APPLIED HERE
+            col_submitted = clean_to_orig_map.get(COL_SUBMITTED)
+            # --------------------------------------
+
             col_map_id = {c.lower(): c for c in df_id.columns}
             date_col_id = next((c for c in df_id.columns if c in ['Date', 'today', 'date']), None)
             addr_cols = ['address', 'location', 'premise', 'premises', 'streetname']
@@ -459,23 +474,6 @@ def render_dashboard(selected_key):
             img_search = ["Attach the microscopic image of the larva _URL", "Attach the microscopic image of the larva_URL", "image_url", "url"]
             col_img = next((c for c in img_search if c in df_id.columns), None)
             
-            # Key Columns - Explicit Names (Trimmed for robust lookup)
-            COL_GENUS = "Select the Genus:".strip()
-            COL_SPECIES = "Select the Species:".strip()
-            COL_CONTAINER = "Type of container the sample was collected from".strip()
-            COL_SUBMITTED = "_submitted_by".strip()
-            
-            # --- FIND ACTUAL COLUMN NAMES IN DF ---
-            # Create a dictionary mapping cleaned headers to original headers
-            clean_to_orig = {c.strip(): c for c in df_id.columns}
-
-            # Use the clean map to find the original column name
-            col_genus = clean_to_orig.get(COL_GENUS)
-            col_species = clean_to_orig.get(COL_SPECIES)
-            col_container = clean_to_orig.get(COL_CONTAINER)
-            col_submitted = clean_to_orig.get(COL_SUBMITTED)
-            # --------------------------------------
-
             if date_col_id: df_id[date_col_id] = pd.to_datetime(df_id[date_col_id])
             df_display = pd.DataFrame()
             df_display['Date'] = df_id[date_col_id].dt.date if date_col_id else 'N/A'
@@ -512,16 +510,12 @@ def render_dashboard(selected_key):
 
             if len(event.selection.rows) > 0:
                 selected_index = event.selection.rows[0]
-                # Pass the original row data with the dynamically found keys
                 original_row = df_id.iloc[selected_index]
                 show_image_popup(original_row)
 
             st.divider()
             
-            # --- 3 PIE CHARTS (GENUS, CONTAINER, USERNAME) ---
             c1, c2, c3 = st.columns(3)
-            
-            # Chart 1: Genus
             with c1:
                 if col_genus:
                     st.write("#### Genus")
@@ -531,7 +525,6 @@ def render_dashboard(selected_key):
                     st.plotly_chart(fig_g, use_container_width=True)
                 else: st.info("Genus data missing")
 
-            # Chart 2: Container (FIXED)
             with c2:
                 if col_container:
                     st.write("#### Container")
@@ -540,9 +533,8 @@ def render_dashboard(selected_key):
                     cont_counts.columns = ['Container', 'Count']
                     fig_c = px.pie(cont_counts, values='Count', names='Container', hole=0.4)
                     st.plotly_chart(fig_c, use_container_width=True)
-                else: st.info(f"Container data missing. Looked for: '{COL_CONTAINER}'")
+                else: st.info(f"Container data missing. Looked for: '{COL_CONTAINER_LABEL}'")
 
-            # Chart 3: Submitted By (Username)
             with c3:
                 if col_submitted:
                     st.write("#### Submitted By")
