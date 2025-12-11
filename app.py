@@ -13,11 +13,14 @@ import base64
 import datetime
 
 # --- 1. SETUP PAGE CONFIGURATION ---
-st.set_page_config(page_title="APHO Tiruchirappalli Dashboard", layout="wide", page_icon="🦟")
+st.set_page_config(page_title="APHO Tiruchirappalli Dashboard", layout="wide")
 
 # --- INITIALIZE SESSION STATE ---
 if 'reports' not in st.session_state:
     st.session_state['reports'] = []
+
+if 'authenticated' not in st.session_state:
+    st.session_state['authenticated'] = False
 
 # --- STAFF NAME MAPPING ---
 STAFF_NAMES = {
@@ -86,12 +89,8 @@ def load_kobo_data(url):
 def plot_metric_bar(data, x_col, y_col, title, color_col, range_max=None):
     if data.empty: return None
     r_max = range_max if range_max else (data[y_col].max() * 1.1 if data[y_col].max() > 0 else 20)
-    
-    # --- UPDATE: Green to Red Gradient for Indices ---
-    # RdYlGn_r means Red-Yellow-Green Reversed -> Low=Green, High=Red
     fig = px.bar(data, x=x_col, y=y_col, title=title, text=y_col, color=color_col, 
-                 color_continuous_scale='RdYlGn_r', range_color=[0, 10]) # Set range to stabilize gradient
-                 
+                 color_continuous_scale='RdYlGn_r', range_color=[0, 10]) # Green to Red
     fig.update_layout(
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
@@ -153,6 +152,7 @@ def get_base64_of_bin_file(bin_file):
 
 # --- FILE HANDLERS ---
 def get_pdf_bytes(filename):
+    """Reads a local PDF file into bytes for download/viewing."""
     try:
         with open(filename, 'rb') as f:
             return f.read()
@@ -283,11 +283,43 @@ def generate_narrative_summary(df, selected_key, date_col, col_street, col_subzo
             
     return "\n\n".join(narrative)
 
-# --- PASSWORD FUNCTION ---
-def check_password_on_home():
-    return True
+# --- AUTHENTICATION ---
+def check_password():
+    """Returns `True` if the user had a correct password."""
+    def password_entered():
+        if st.session_state["password"] == "Aphotrz@2025":
+            st.session_state["authenticated"] = True
+            del st.session_state["password"] 
+        else:
+            st.session_state["authenticated"] = False
 
-# --- CUSTOM CSS INJECTION (BEAUTIFICATION) ---
+    if st.session_state.get("authenticated", False):
+        return True
+
+    st.markdown("""
+        <style>
+        .stApp { background-color: #f8fafc; }
+        .login-box {
+            max-width: 400px;
+            margin: 100px auto;
+            padding: 30px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            text-align: center;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    st.markdown('<div class="login-box"><h2>🔐 Access Restricted</h2><p>Please enter your credentials.</p></div>', unsafe_allow_html=True)
+    st.text_input("Password", type="password", on_change=password_entered, key="password")
+    
+    if "authenticated" in st.session_state and not st.session_state["authenticated"]:
+        st.error("😕 Incorrect password")
+        
+    return False
+
+# --- CUSTOM CSS INJECTION ---
 def inject_custom_css():
     st.markdown("""
         <style>
@@ -854,7 +886,10 @@ def render_home_page():
     
     if st.session_state.get('page') not in ['peri', 'intra', 'flights', 'anti_larval', 'sanitary']:
         st.header("Select Activity Section")
+        
+        # Grid Layout for Home Page
         col1, col2 = st.columns(2)
+        
         with col1:
             if st.button("🦟 Outside Field Activities (Peri)", use_container_width=True, type="primary"):
                 st.session_state['page'] = 'peri'
@@ -867,6 +902,7 @@ def render_home_page():
             if st.button("🧹 Sanitary & Toilet Reports", use_container_width=True, type="primary"):
                 st.session_state['page'] = 'sanitary'
                 st.rerun()
+
         with col2:
             if st.button("✈️ International Flights Screening", use_container_width=True, type="primary"):
                 st.session_state['page'] = 'flights'
