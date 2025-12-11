@@ -120,6 +120,67 @@ def get_base64_of_bin_file(bin_file):
         data = f.read()
     return base64.b64encode(data).decode()
 
+# --- MOVED TO GLOBAL SCOPE TO FIX NAME ERROR ---
+def generate_report_df(df_source, date_col, col_username, selected_key, col_premises, col_subzone, col_street, current_config):
+    with st.spinner("Fetching Identification Data..."):
+        df_id_rep = load_kobo_data(current_config['id_url'])
+        id_date_col = next((c for c in df_id_rep.columns if 'date' in c.lower() or 'today' in c.lower()), None)
+        if id_date_col:
+            df_id_rep[id_date_col] = pd.to_datetime(df_id_rep[id_date_col])
+            df_id_rep['join_date'] = df_id_rep[id_date_col].dt.date
+    
+    unique_dates = sorted(df_source[date_col].dt.date.unique())
+    report_data = []
+    for i, day in enumerate(unique_dates, 1):
+        df_day = df_source[df_source[date_col].dt.date == day]
+        staffs = ", ".join(df_day[col_username].dropna().unique().astype(str)) if col_username in df_day else ""
+        
+        loc_list = ""
+        street_list = ""
+        if selected_key == 'intra' and col_premises and col_premises in df_day:
+            loc_list = ", ".join(df_day[col_premises].dropna().unique().astype(str))
+        elif selected_key == 'peri' and col_subzone and col_subzone in df_day:
+            loc_list = ", ".join(df_day[col_subzone].dropna().unique().astype(str))
+        if col_street and col_street in df_day.columns:
+            street_list = ", ".join(df_day[col_street].dropna().astype(str).unique())
+            
+        d_dry = df_day['dry_cont_calc'].sum()
+        d_wet = df_day['wet_cont_calc'].sum()
+        
+        cnt_entries, cnt_pos, idx_hi, idx_ci, idx_bi = 0, 0, 0, 0, 0
+        if selected_key == 'intra':
+            if col_premises in df_day.columns:
+                df_day['premise_clean'] = df_day[col_premises].apply(normalize_string)
+                df_day_grp = df_day.groupby('premise_clean').agg({'pos_house_calc':'max', 'pos_cont_calc':'sum', 'wet_cont_calc':'sum'})
+                cnt_entries = len(df_day_grp)
+                cnt_pos = (df_day_grp['pos_house_calc'] > 0).sum()
+                d_pos_cont = df_day_grp['pos_cont_calc'].sum()
+                d_wet_sum = df_day_grp['wet_cont_calc'].sum()
+                idx_hi = (cnt_pos / cnt_entries * 100) if cnt_entries > 0 else 0
+                idx_ci = (d_pos_cont / d_wet_sum * 100) if d_wet_sum > 0 else 0
+                idx_bi = (d_pos_cont / cnt_entries * 100) if cnt_entries > 0 else 0
+        else:
+            cnt_entries = len(df_day)
+            cnt_pos = (df_day['pos_house_calc'] > 0).sum()
+            d_pos_cont = df_day['pos_cont_calc'].sum()
+            idx_hi = (cnt_pos / cnt_entries * 100) if cnt_entries > 0 else 0
+            idx_ci = (d_pos_cont / d_wet * 100) if d_wet > 0 else 0
+            idx_bi = (d_pos_cont / cnt_entries * 100) if cnt_entries > 0 else 0
+
+        genus_list = ""
+        if not df_id_rep.empty and 'join_date' in df_id_rep.columns:
+            day_id = df_id_rep[df_id_rep['join_date'] == day]
+            g_col = next((c for c in day_id.columns if "Genus" in c), None)
+            if g_col: genus_list = ", ".join(day_id[g_col].dropna().astype(str).tolist())
+
+        report_data.append({
+            "Serial No": i, "Date": day, "Count": cnt_entries, "Staffs": staffs,
+            "Locations": loc_list, "Streets": street_list, "Dry": int(d_dry), "Wet": int(d_wet),
+            "Positives": int(cnt_pos), "HI/PI": round(idx_hi, 2), "CI": round(idx_ci, 2),
+            "BI": round(idx_bi, 2), "Genuses": genus_list
+        })
+    return pd.DataFrame(report_data)
+
 # --- SUMMARY GENERATOR ---
 def generate_narrative_summary(df, selected_key, date_col, col_street, col_subzone, col_premises):
     df = df.copy()
@@ -264,7 +325,9 @@ def render_dashboard(selected_key):
             df_filtered['unique_premise_id'] = df_filtered[date_col].dt.date.astype(str) + "_" + df_filtered[col_premises].apply(normalize_string)
             agg_dict = {'pos_house_calc': 'max', 'pos_cont_calc': 'sum', 'wet_cont_calc': 'sum', 'dry_cont_calc': 'sum'}
             
+            # --- FIX 1: Ensure date_col is preserved in aggregation for Intra graphs ---
             if date_col: agg_dict[date_col] = 'first'
+            
             for c in [col_zone, col_lat, col_lon, col_premises, col_username]:
                 if c and c in df_filtered.columns: agg_dict[c] = 'first'
             
@@ -431,8 +494,6 @@ def render_dashboard(selected_key):
             
             # --- 3 PIE CHARTS (GENUS, SPECIES, CONTAINER) ---
             c1, c2, c3 = st.columns(3)
-            
-            # Chart 1: Genus
             with c1:
                 if col_genus in df_id.columns:
                     st.write("#### Genus")
@@ -442,7 +503,6 @@ def render_dashboard(selected_key):
                     st.plotly_chart(fig_g, use_container_width=True)
                 else: st.info("Genus data missing")
 
-            # Chart 2: Species
             with c2:
                 if col_species in df_id.columns:
                     st.write("#### Species")
@@ -452,7 +512,6 @@ def render_dashboard(selected_key):
                     st.plotly_chart(fig_s, use_container_width=True)
                 else: st.info("Species data missing")
 
-            # Chart 3: Container
             with c3:
                 if col_container in df_id.columns:
                     st.write("#### Container")
@@ -482,24 +541,21 @@ def render_dashboard(selected_key):
             total_searched = staff_group['wet_cont_calc'].sum()
             staff_perf['Container Index'] = (staff_perf['Positive Containers'] / total_searched.replace(0, 1) * 100).round(2)
             
-            # --- FIXED LARVAE ID SYNC LOGIC ---
+            # --- FIXED 2: Larvae ID Count Logic in Staff Report ---
             try:
                 with st.spinner("Syncing Larvae ID Data..."):
                     df_id_sync = load_kobo_data(current_config['id_url'])
                     
-                    # Identify username column in ID data
+                    # Find any column that looks like 'username'
                     id_col_map = {c.lower(): c for c in df_id_sync.columns}
-                    id_user_col = id_col_map.get('username')
+                    # Common names for username in Kobo
+                    possible_user_cols = ['username', 'user_name', 'staff_name', 'data_collector']
+                    id_user_col = next((id_col_map.get(k) for k in possible_user_cols if id_col_map.get(k)), None)
                     
                     if not df_id_sync.empty and id_user_col:
-                        # Clean usernames in ID data
                         df_id_sync['clean_user'] = df_id_sync[id_user_col].astype(str).str.strip().str.lower()
                         id_counts = df_id_sync.groupby('clean_user').size()
-                        
-                        # Clean surveillance usernames (Index)
                         temp_index = staff_perf.index.astype(str).str.strip().str.lower()
-                        
-                        # Map counts
                         staff_perf['Larvae ID Entries'] = temp_index.map(id_counts).fillna(0).astype(int)
                     else:
                         staff_perf['Larvae ID Entries'] = 0
@@ -530,7 +586,8 @@ def render_dashboard(selected_key):
                 sel_mon = st.selectbox("Select Month:", sorted(df_rep_raw['Month_Year'].unique(), reverse=True))
                 if sel_mon:
                     df_m = df_rep_raw[df_rep_raw['Month_Year'] == sel_mon].copy()
-                    rep_df = generate_report_df(df_m, sel_mon)
+                    # Call global function
+                    rep_df = generate_report_df(df_m, date_col, col_username, selected_key, col_premises, col_subzone, col_street, current_config)
                     st.dataframe(rep_df, hide_index=True)
                     st.download_button("Download Excel", to_excel(rep_df), "Monthly.xlsx")
 
@@ -549,7 +606,8 @@ def render_dashboard(selected_key):
                 sel_ft = st.selectbox("Select Fortnight:", df_ft['Label'].unique())
                 if sel_ft:
                     df_sft = df_ft[df_ft['Label'] == sel_ft].copy()
-                    ft_rep = generate_report_df(df_sft, sel_ft)
+                    # Call global function
+                    ft_rep = generate_report_df(df_sft, date_col, col_username, selected_key, col_premises, col_subzone, col_street, current_config)
                     st.dataframe(ft_rep, hide_index=True)
                     st.download_button("Download Excel", to_excel(ft_rep), "Fortnightly.xlsx")
 
