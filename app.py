@@ -67,6 +67,556 @@ def load_kobo_data(url):
     except:
         return pd.DataFrame()
 
+def plot_metric_bar(data, x_col, y_col, title, color_col, range_max=None):
+    if data.empty: return None
+    # Determine color range dynamically if not set
+    r_max = range_max if range_max else (data[y_col].max() * 1.1 if data[y_col].max() > 0 else 20)
+    
+    fig = px.bar(data, x=x_col, y=y_col, title=title, text=y_col, color=color_col, 
+                 color_continuous_scale='RdYlGn_r', range_color=[0, r_max])
+    fig.update_traces(texttemplate='%{text:.2f}', textposition='outside')
+    fig.update_layout(coloraxis_showscale=False)
+    return fig
+
+def normalize_string(text):
+    if pd.isna(text): return ""
+    return re.sub(r'[^a-z0-9]', '', str(text).lower())
+
+def get_thumbnail_url(original_url):
+    if not isinstance(original_url, str) or not original_url.startswith("http"): return None
+    return f"https://wsrv.nl/?url={urllib.parse.quote(original_url)}&w=150&q=60"
+
+def get_high_res_url(original_url):
+    if not isinstance(original_url, str) or not original_url.startswith("http"): return None
+    return f"https://wsrv.nl/?url={urllib.parse.quote(original_url)}&w=1200&q=85"
+
+@st.dialog("🔬 Larvae Microscopic View", width="large")
+def show_image_popup(row_data):
+    col_genus = "Select the Genus:"
+    col_species = "Select the Species:"
+    col_container = "Type of container the sample was collected from"
+    col_submitted = "_submitted_by"
+    
+    genus = row_data.get(col_genus, 'N/A')
+    species = row_data.get(col_species, 'N/A')
+    container = row_data.get(col_container, 'N/A')
+    submitted_by = row_data.get(col_submitted, 'N/A')
+    address = row_data.get('Calculated_Address', 'N/A')
+    original_url = row_data.get('Original_Image_URL')
+
+    c1, c2, c3 = st.columns(3)
+    with c1: st.info(f"**📍 Address:**\n{address}")
+    with c2: st.warning(f"**🪣 Container:**\n{container}")
+    with c3: st.success(f"**👤 Submitted By:**\n{submitted_by}")
+
+    st.markdown(f"### {genus} ({species})")
+
+    if original_url:
+        high_res_link = get_high_res_url(original_url)
+        st.image(high_res_link, caption="Full Resolution Microscopic View", use_container_width=True)
+    else:
+        st.warning("⚠️ No image URL found.")
+
+def get_base64_of_bin_file(bin_file):
+    with open(bin_file, 'rb') as f:
+        data = f.read()
+    return base64.b64encode(data).decode()
+
+# --- SUMMARY GENERATOR ---
+def generate_narrative_summary(df, selected_key, date_col, col_street, col_subzone, col_premises):
+    df = df.copy()
+    df[date_col] = pd.to_datetime(df[date_col])
+    df['Month_Year'] = df[date_col].dt.to_period('M')
+    
+    all_months = sorted(df['Month_Year'].unique())
+    if not all_months: return "No data."
+    
+    curr_month = all_months[-1]
+    prev_month = all_months[-2] if len(all_months) > 1 else None
+    
+    df_curr = df[df['Month_Year'] == curr_month]
+    df_prev = df[df['Month_Year'] == prev_month] if prev_month else pd.DataFrame()
+    
+    narrative = [f"#### 📝 Executive Summary ({curr_month.strftime('%B %Y')})"]
+    
+    if col_street and col_street in df_curr.columns:
+        street_stats = df_curr.groupby(col_street).agg(
+            pos=('pos_house_calc', lambda x: (x>0).sum()),
+            total=('pos_house_calc', 'count')
+        )
+        street_stats['HI'] = (street_stats['pos'] / street_stats['total'] * 100)
+        top_streets = street_stats[street_stats['pos'] > 0].sort_values('HI', ascending=False).head(5)
+        
+        if not top_streets.empty:
+            s_list = ", ".join([f"**{idx}** ({row['HI']:.1f}%)" for idx, row in top_streets.iterrows()])
+            narrative.append(f"**🔴 High Risk Streets (House Index):** {s_list}")
+        else:
+            narrative.append(f"**🟢 Streets:** No positive streets found in {curr_month.strftime('%B')}.")
+            
+    loc_col = col_subzone if selected_key == 'peri' else col_premises
+    if loc_col and loc_col in df_curr.columns:
+        cont_stats = df_curr.groupby(loc_col)['pos_cont_calc'].sum().sort_values(ascending=False)
+        high_cont = cont_stats[cont_stats > 0].head(3)
+        if not high_cont.empty:
+            c_list = ", ".join([f"**{idx}** ({int(val)} containers)" for idx, val in high_cont.items()])
+            narrative.append(f"**🪣 High Positive Containers:** Found in {c_list}.")
+            
+    if prev_month and loc_col and loc_col in df_curr.columns:
+        def calc_hi(d, g_col):
+            g = d.groupby(g_col)
+            return (g['pos_house_calc'].apply(lambda x: (x>0).sum()) / g[g_col].count() * 100).fillna(0)
+
+        hi_c = calc_hi(df_curr, loc_col)
+        hi_p = calc_hi(df_prev, loc_col)
+        comp = pd.DataFrame({'Curr': hi_c, 'Prev': hi_p}).fillna(0)
+        comp['Diff'] = comp['Curr'] - comp['Prev']
+        inc = comp[comp['Diff'] > 0].sort_values('Diff', ascending=False).head(3)
+        dec = comp[comp['Diff'] < 0].sort_values('Diff', ascending=True).head(3)
+        if not inc.empty:
+            i_str = ", ".join([f"**{idx}** (+{val:.1f}%)" for idx, val in inc['Diff'].items()])
+            narrative.append(f"**📈 Worsening Trends (vs {prev_month.strftime('%b')}):** Indices increased in {i_str}.")
+        if not dec.empty:
+            d_str = ", ".join([f"**{idx}** ({val:.1f}%)" for idx, val in dec['Diff'].items()])
+            narrative.append(f"**📉 Improving Trends:** Indices reduced in {d_str}.")
+            
+    return "\n\n".join(narrative)
+
+# --- PASSWORD FUNCTION ---
+def check_password_on_home():
+    def password_entered():
+        if st.session_state["password"] == "Aphotrz@2025":
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]
+        else:
+            st.session_state["password_correct"] = False
+    
+    if st.session_state.get("password_correct", False): return True
+    
+    st.text_input("🔒 Enter Password to Login", type="password", on_change=password_entered, key="password")
+    if "password_correct" in st.session_state and not st.session_state["password_correct"]:
+        st.error("❌ Password incorrect")
+    return False
+
+# --- MAIN DASHBOARD RENDERER ---
+def render_dashboard(selected_key):
+    st.markdown("""<style>.block-container { margin-top: 2rem !important; padding-top: 1rem !important; }</style>""", unsafe_allow_html=True)
+
+    if st.sidebar.button("🏠 Back to Home"):
+        st.session_state['page'] = 'home'
+        st.rerun()
+    
+    current_config = SECTION_CONFIG[selected_key]
+    st.title(current_config['title'])
+
+    with st.spinner('Fetching Surveillance data...'):
+        df = load_kobo_data(current_config['surv_url'])
+
+    if df.empty:
+        st.info("No data found or error loading Kobo data.")
+        return
+
+    # Column Mapping
+    col_map_lower = {c.lower(): c for c in df.columns}
+    col_zone = col_map_lower.get('zone')
+    col_subzone = col_map_lower.get('subzone')
+    col_street = col_map_lower.get('streetname')
+    col_username = col_map_lower.get('username')
+    col_premises = "Premises" if "Premises" in df.columns else col_map_lower.get('premises')
+    col_pos_house_raw = "Among_the_wet_containers_how_"
+    col_pos_cont_raw = "Among_the_wet_containers_how_"
+    col_wet_cont_raw = "Number_of_wet_containers_found" if "Number_of_wet_containers_found" in df.columns else "Number_of_wet_containers_"
+    col_dry_cont_raw = "number_of_dry_contai_tentially_hold_water"
+    col_lat = "_Location_latitude"
+    col_lon = "_Location_longitude"
+    date_col = "Date" if "Date" in df.columns else col_map_lower.get('date')
+    if not date_col:
+        for c in ['today', 'start', '_submission_time']:
+             if c in col_map_lower: date_col = col_map_lower[c]; break
+
+    # Filters
+    st.sidebar.divider()
+    st.sidebar.subheader("Filters")
+    df_filtered = df.copy()
+    if date_col:
+        df_filtered[date_col] = pd.to_datetime(df_filtered[date_col])
+        min_date, max_date = df_filtered[date_col].min().date(), df_filtered[date_col].max().date()
+        d1, d2 = st.sidebar.columns(2)
+        start_date = d1.date_input("Start", min_date)
+        end_date = d2.date_input("End", max_date)
+        mask = (df_filtered[date_col].dt.date >= start_date) & (df_filtered[date_col].dt.date <= end_date)
+        df_filtered = df_filtered.loc[mask]
+
+    if col_zone and col_zone in df_filtered.columns:
+        opts = sorted(df_filtered[col_zone].dropna().unique().astype(str))
+        sel = st.sidebar.multiselect(f"Filter by Zone", opts)
+        if sel: df_filtered = df_filtered[df_filtered[col_zone].astype(str).isin(sel)]
+    if col_subzone and col_subzone in df_filtered.columns:
+        opts = sorted(df_filtered[col_subzone].dropna().unique().astype(str))
+        sel = st.sidebar.multiselect(f"Filter by SubZone", opts)
+        if sel: df_filtered = df_filtered[df_filtered[col_subzone].astype(str).isin(sel)]
+
+    # Calcs
+    for col, raw_col in [('pos_house_calc', col_pos_house_raw), ('pos_cont_calc', col_pos_cont_raw), ('wet_cont_calc', col_wet_cont_raw)]:
+        df_filtered[col] = pd.to_numeric(df_filtered[raw_col], errors='coerce').fillna(0) if raw_col in df_filtered.columns else 0
+    df_filtered['dry_cont_calc'] = pd.to_numeric(df_filtered[col_dry_cont_raw], errors='coerce').fillna(0) if col_dry_cont_raw in df_filtered.columns else 0
+
+    display_count, positive_count, hi_val, ci_val, bi_val = 0, 0, 0, 0, 0
+    if selected_key == 'intra':
+        if col_premises and date_col:
+            df_filtered['unique_premise_id'] = df_filtered[date_col].dt.date.astype(str) + "_" + df_filtered[col_premises].apply(normalize_string)
+            agg_dict = {'pos_house_calc': 'max', 'pos_cont_calc': 'sum', 'wet_cont_calc': 'sum', 'dry_cont_calc': 'sum'}
+            for c in [col_zone, col_lat, col_lon, col_premises, col_username]:
+                if c and c in df_filtered.columns: agg_dict[c] = 'first'
+            df_grouped = df_filtered.groupby('unique_premise_id', as_index=False).agg(agg_dict)
+            
+            total_unique_premises = df_grouped['unique_premise_id'].nunique()
+            positive_premises_count = (df_grouped['pos_house_calc'] > 0).sum()
+            hi_val = (positive_premises_count / total_unique_premises * 100) if total_unique_premises > 0 else 0
+            ci_val = (df_grouped['pos_cont_calc'].sum() / df_grouped['wet_cont_calc'].sum() * 100) if df_grouped['wet_cont_calc'].sum() > 0 else 0
+            bi_val = (df_grouped['pos_cont_calc'].sum() / total_unique_premises * 100) if total_unique_premises > 0 else 0
+            df_for_graphs = df_grouped.copy()
+            df_for_graphs['is_positive_premise'] = (df_for_graphs['pos_house_calc'] > 0).astype(int)
+            display_count, positive_count = total_unique_premises, positive_premises_count
+        else: df_for_graphs = df_filtered.copy()
+    else:
+        display_count = len(df_filtered)
+        df_filtered['is_positive_house'] = df_filtered['pos_house_calc'].apply(lambda x: 1 if x > 0 else 0)
+        positive_count = df_filtered['is_positive_house'].sum()
+        if display_count > 0:
+            hi_val = (positive_count / display_count) * 100
+            ci_val = (df_filtered['pos_cont_calc'].sum() / df_filtered['wet_cont_calc'].sum() * 100) if df_filtered['wet_cont_calc'].sum() > 0 else 0
+            bi_val = (df_filtered['pos_cont_calc'].sum() / display_count * 100)
+        df_for_graphs = df_filtered.copy()
+
+    # --- TOP METRICS ROW ---
+    label_hi = "Premises Index (PI)" if selected_key == 'intra' else "House Index (HI)"
+    label_entries = "Unique Premises" if selected_key == 'intra' else "Total Entries"
+    total_pos_containers = int(df_filtered['pos_cont_calc'].sum())
+    
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
+    m1.metric(label_entries, display_count)
+    m2.metric("Positive Houses/Premises", positive_count)
+    m3.metric("Total Positive Containers", total_pos_containers) # NEW STAT
+    m4.metric(label_hi, f"{hi_val:.2f}")
+    m5.metric("Container Index (CI)", f"{ci_val:.2f}")
+    m6.metric("Breteau Index (BI)", f"{bi_val:.2f}")
+
+    # --- EXTENDED GRAPHS SECTION ---
+    st.divider()
+    
+    # Tabs for organization
+    graph_tabs = st.tabs(["📈 Trend Analysis", "🌍 Zone Stats", "🏘️ Subzone Stats", "🛣️ Street Stats", "🏢 Premises Stats"])
+    
+    # 1. TREND ANALYSIS (HI Over Time)
+    with graph_tabs[0]:
+        st.subheader("Trend Analysis: House Index (HI) over Time")
+        if date_col and col_zone in df_filtered.columns:
+            df_trend = df_filtered.copy()
+            df_trend['Month'] = df_trend[date_col].dt.to_period('M').astype(str)
+            
+            # Group by Month and Zone
+            # HI = (Positive Count / Total Count) * 100
+            trend_data = df_trend.groupby(['Month', col_zone]).agg(
+                pos=('pos_house_calc', lambda x: (x>0).sum()),
+                total=('pos_house_calc', 'count')
+            ).reset_index()
+            trend_data['HI'] = (trend_data['pos'] / trend_data['total'] * 100).fillna(0)
+            
+            fig_trend = px.line(trend_data, x='Month', y='HI', color=col_zone, markers=True,
+                                title=f"Trend of {label_hi} by Zone")
+            st.plotly_chart(fig_trend, use_container_width=True)
+        else:
+            st.info("Insufficient data for Trend Analysis.")
+
+    # Helper to generate Standard Charts
+    def render_standard_charts(group_col, title_prefix):
+        if group_col not in df_for_graphs.columns:
+            st.warning(f"Column for {title_prefix} not found.")
+            return
+
+        # Prepare Aggregated Data
+        aggs = {
+            'pos_cont_calc': 'sum', 
+            'wet_cont_calc': 'sum',
+            'pos_house_calc': lambda x: (x > 0).sum(), # Positive Houses/Premises count
+            'dry_cont_calc': 'count' # Just to count total entries/rows
+        }
+        
+        g = df_for_graphs.groupby(group_col).agg(aggs).rename(columns={'dry_cont_calc': 'Total Entries'})
+        g['HI'] = (g['pos_house_calc'] / g['Total Entries'] * 100).fillna(0)
+        g['CI'] = (g['pos_cont_calc'] / g['wet_cont_calc'].replace(0, 1) * 100).fillna(0)
+        g['BI'] = (g['pos_cont_calc'] / g['Total Entries'] * 100).fillna(0)
+        
+        g = g.reset_index()
+        
+        # Sort by HI descending for better visibility
+        g = g.sort_values('HI', ascending=False)
+        
+        # Limit to top 20 if too many rows (e.g. streets)
+        if len(g) > 20:
+            st.caption(f"Showing Top 20 {title_prefix}s by Activity")
+            g = g.head(20)
+
+        c1, c2 = st.columns(2)
+        c1.plotly_chart(plot_metric_bar(g, group_col, 'HI', f"{label_hi} by {title_prefix}", 'HI', 20), use_container_width=True)
+        c2.plotly_chart(plot_metric_bar(g, group_col, 'Total Entries', f"Total Houses/Premises Visited by {title_prefix}", 'Total Entries', None), use_container_width=True)
+        
+        c3, c4 = st.columns(2)
+        c3.plotly_chart(plot_metric_bar(g, group_col, 'CI', f"Container Index (CI) by {title_prefix}", 'CI', 20), use_container_width=True)
+        c4.plotly_chart(plot_metric_bar(g, group_col, 'BI', f"Breteau Index (BI) by {title_prefix}", 'BI', 20), use_container_width=True)
+
+    # 2. ZONE STATS
+    with graph_tabs[1]:
+        render_standard_charts(col_zone, "Zone")
+
+    # 3. SUBZONE STATS
+    with graph_tabs[2]:
+        render_standard_charts(col_subzone, "Subzone")
+
+    # 4. STREET STATS
+    with graph_tabs[3]:
+        render_standard_charts(col_street, "Street")
+
+    # 5. PREMISES STATS (Specific for Intra)
+    with graph_tabs[4]:
+        if selected_key == 'intra':
+            # Daily Unique Premises Count
+            st.subheader("Daily Activity Analysis")
+            daily_prem = df_for_graphs.groupby(date_col)['unique_premise_id'].nunique().reset_index()
+            daily_prem.columns = ['Date', 'Unique Premises']
+            fig_daily = px.bar(daily_prem, x='Date', y='Unique Premises', title="Total Unique Premises Checked per Day")
+            st.plotly_chart(fig_daily, use_container_width=True)
+            
+            # Premises Breakdown
+            if col_premises in df_for_graphs.columns:
+                st.divider()
+                render_standard_charts(col_premises, "Premise")
+        else:
+            st.info("Premises stats are primarily for Intra-Airport data.")
+
+
+    # --- MAP ---
+    with st.expander("🌍 Map", expanded=False):
+        if col_lat in df_for_graphs.columns and col_lon in df_for_graphs.columns:
+            map_df = df_for_graphs.dropna(subset=[col_lat, col_lon]).copy()
+            if not map_df.empty:
+                m = folium.Map(location=[map_df[col_lat].mean(), map_df[col_lon].mean()], zoom_start=13)
+                for _, row in map_df.iterrows():
+                    color = '#00ff00' if row['pos_house_calc'] == 0 else '#ff0000'
+                    folium.CircleMarker([row[col_lat], row[col_lon]], radius=6, color=color, fill=True, fill_color=color).add_to(m)
+                st_folium(m, height=400)
+
+    # --- LARVAE ID TABLE ---
+    with st.expander("🔬 Larvae Identification Data", expanded=False):
+        df_id = load_kobo_data(current_config['id_url'])
+        
+        if not df_id.empty:
+            col_map_id = {c.lower(): c for c in df_id.columns}
+            date_col_id = next((c for c in df_id.columns if c in ['Date', 'today', 'date']), None)
+            
+            addr_cols = ['address', 'location', 'premise', 'premises', 'streetname']
+            col_address_id = next((col_map_id.get(k) for k in addr_cols if col_map_id.get(k)), 'N/A')
+            
+            img_search = ["Attach the microscopic image of the larva _URL", "Attach the microscopic image of the larva_URL", "image_url", "url"]
+            col_img = next((c for c in img_search if c in df_id.columns), None)
+            
+            col_genus = "Select the Genus:"
+            col_species = "Select the Species:"
+            col_container = "Type of container the sample was collected from"
+
+            if date_col_id:
+                df_id[date_col_id] = pd.to_datetime(df_id[date_col_id])
+                
+            df_display = pd.DataFrame()
+            df_display['Date'] = df_id[date_col_id].dt.date if date_col_id else 'N/A'
+            df_display['Address'] = df_id[col_address_id] if col_address_id != 'N/A' else 'N/A'
+            df_display['Genus'] = df_id[col_genus] if col_genus in df_id.columns else 'N/A'
+            df_display['Species'] = df_id[col_species] if col_species in df_id.columns else 'N/A'
+            
+            if col_img:
+                df_display['Thumbnail'] = df_id[col_img].apply(get_thumbnail_url)
+                df_id['Original_Image_URL'] = df_id[col_img]
+            else:
+                df_display['Thumbnail'] = None
+                df_id['Original_Image_URL'] = None
+
+            df_display = df_display.reset_index(drop=True)
+            df_display.index += 1
+            df_display.index.name = "S.No"
+            df_display = df_display.reset_index()
+
+            df_id['Calculated_Address'] = df_display['Address']
+            
+            st.info("💡 Click on a row to view full details and image.")
+            
+            event = st.dataframe(
+                df_display,
+                column_order=["S.No", "Date", "Address", "Thumbnail", "Genus", "Species"],
+                column_config={
+                    "Thumbnail": st.column_config.ImageColumn("Microscopic Image", width="small"),
+                },
+                hide_index=True,
+                use_container_width=True,
+                on_select="rerun",
+                selection_mode="single-row"
+            )
+
+            if len(event.selection.rows) > 0:
+                selected_index = event.selection.rows[0]
+                original_row = df_id.iloc[selected_index]
+                show_image_popup(original_row)
+
+            st.divider()
+            c1, c2 = st.columns(2)
+            
+            if col_genus in df_id.columns:
+                c1.write("#### Genus Distribution")
+                genus_counts = df_id[col_genus].value_counts().reset_index()
+                genus_counts.columns = ['Genus', 'Count']
+                fig_g = px.pie(genus_counts, values='Count', names='Genus', hole=0.4)
+                c1.plotly_chart(fig_g, use_container_width=True)
+            
+            if col_container in df_id.columns:
+                c2.write("#### Container Distribution")
+                cont_data = df_id[df_id[col_container].notna() & (df_id[col_container] != "")]
+                cont_counts = cont_data[col_container].value_counts().reset_index()
+                cont_counts.columns = ['Container Type', 'Count']
+                fig_c = px.pie(cont_counts, values='Count', names='Container Type', hole=0.4)
+                c2.plotly_chart(fig_c, use_container_width=True)
+
+        else:
+            st.info("No identification data available.")
+
+    st.divider()
+    summary_text = generate_narrative_summary(df_filtered, selected_key, date_col, col_street, col_subzone, col_premises)
+    st.markdown(summary_text)
+
+# --- HOME PAGE LOGIC ---
+def render_home_page():
+    try:
+        bin_str = get_base64_of_bin_file("logo.png")
+        page_bg_img = f"""
+        <style>
+        .stApp {{
+            background-image: url("data:image/png;base64,{bin_str}");
+            background-size: cover;
+            background-position: center center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+        }}
+        .block-container {{
+            background-color: rgba(255, 255, 255, 0.90);
+            border-radius: 20px;
+            padding: 2rem;
+            max-width: 800px;
+            margin: auto;
+            margin-top: 45vh; 
+        }}
+        </style>
+        """
+        st.markdown(page_bg_img, unsafe_allow_html=True)
+    except:
+        st.warning("Background image 'logo.png' not found on GitHub.")
+
+    is_authenticated = check_password_on_home()
+    
+    if is_authenticated:
+        st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>AIRPORT HEALTH ORGANISATION</h1>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align: center; color: #1E3A8A;'>TIRUCHIRAPPALLI INTERNATIONAL AIRPORT</h3>", unsafe_allow_html=True)
+        
+        st.divider()
+        
+        _, col_buttons, _ = st.columns([1, 2, 1])
+        with col_buttons:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🦟 Outside Field Activities (Peri)", use_container_width=True, type="primary"):
+                st.session_state['page'] = 'peri'
+                st.rerun()
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("✈️ Inside Field Activities (Intra)", use_container_width=True, type="primary"):
+                st.session_state['page'] = 'intra'
+                st.rerun()
+
+# --- APP ENTRY POINT ---
+if 'page' not in st.session_state:
+    st.session_state['page'] = 'home'
+
+if st.session_state['page'] == 'home':
+    render_home_page()
+else:
+    if st.session_state.get("password_correct", False):
+        render_dashboard(st.session_state['page'])
+    else:
+        st.session_state['page'] = 'home'
+        st.rerun()import streamlit as st
+import pandas as pd
+import requests
+import io
+import plotly.express as px
+import re
+import urllib.parse
+import folium
+from streamlit_folium import st_folium
+import xlsxwriter
+from PIL import Image
+import base64 
+
+# --- 1. SETUP PAGE CONFIGURATION ---
+st.set_page_config(page_title="APHO Tiruchirappalli Dashboard", layout="wide")
+
+# --- STAFF NAME MAPPING ---
+STAFF_NAMES = {
+    'abhiguptak': 'Abhishek Gupta',
+    'arunhealthinspector': 'Arun',
+    'chandru1426': 'Chandru',
+    'dineshg': 'Dinesh',
+    'iyyappank': 'Iyyapan',
+    'kalaig': 'Kalaichelvan',
+    'kishanth': 'Kishanth',
+    'nitesh9896': 'Nitesh',
+    'prabhahi': 'Prabhakaran',
+    'rajaramha': 'Rajaram',
+    'ramnareshfw': 'Ram naresh',
+    'siddhik23': 'siddhik',
+    'simbuha': 'Silambarasan',
+    'souravmalik7055': 'sourav MAlik'
+}
+
+# --- CONFIGURATION DICTIONARY ---
+SECTION_CONFIG = {
+    'peri': {
+        'title': 'Peri-Airport Larvae Surveillance',
+        'surv_url': 'https://kf.kobotoolbox.org/api/v2/assets/aXM5aSjVEJTgt6z5qMvNFe/export-settings/es9zUAYU5f8PqCokaZSuPmg/data.csv',
+        'id_url': 'https://kf.kobotoolbox.org/api/v2/assets/afU6pGvUzT8Ao4pAeX54QY/export-settings/esinGxnSujLzanzmAv6Mdb4/data.csv'
+    },
+    'intra': {
+        'title': 'Intra-Airport Larvae Surveillance',
+        'surv_url': 'https://kf.kobotoolbox.org/api/v2/assets/aEdcSxvmrBuXBmzXNECtjr/export-settings/esgYdEaEk79Y69k56abNGdW/data.csv',
+        'id_url': 'https://kf.kobotoolbox.org/api/v2/assets/anN9HTYvmLRTorb7ojXs5A/export-settings/esLiqyb8KpPfeMX4ZnSoXSm/data.csv'
+    }
+}
+
+# --- HELPER FUNCTIONS ---
+def to_excel(df):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='Sheet1')
+    return output.getvalue()
+
+@st.cache_data(ttl=300)
+def load_kobo_data(url):
+    try:
+        if "KOBO_TOKEN" in st.secrets:
+            token = st.secrets["KOBO_TOKEN"]
+        else:
+            token = "48554147c1847ddfe4c1c987a54b4196a03c1d9c"
+        headers = {"Authorization": f"Token {token}"}
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        return pd.read_csv(io.StringIO(response.text), sep=None, engine='python', on_bad_lines='skip')
+    except:
+        return pd.DataFrame()
+
 def plot_metric_bar(data, x_col, y_col, title, color_col):
     fig = px.bar(data, x=x_col, y=y_col, title=title, text=y_col, color=color_col, color_continuous_scale='RdYlGn_r', range_color=[0, 20])
     fig.update_traces(texttemplate='%{text:.2f}', textposition='outside')
