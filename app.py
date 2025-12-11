@@ -456,22 +456,34 @@ def render_dashboard(selected_key):
     with st.expander("🔬 Larvae Identification Data (Click to Expand)", expanded=False):
         df_id = load_kobo_data(current_config['id_url'])
         
-        # 1. Define Clean Targets
-        COL_GENUS = "Select the Genus:".strip()
-        COL_SPECIES = "Select the Species:".strip()
-        COL_CONTAINER_LABEL = "Type of container the sample was collected from"
-        COL_SUBMITTED = "_submitted_by".strip()
-        
-        # 2. Find Actual Column Names (Robust Search - strips all spaces from headers)
-        clean_to_orig_map = {col.strip(): col for col in df_id.columns}
-
-        col_genus = clean_to_orig_map.get(COL_GENUS)
-        col_species = clean_to_orig_map.get(COL_SPECIES)
-        col_container = clean_to_orig_map.get(COL_CONTAINER_LABEL) # FIX IS APPLIED HERE
-        col_submitted = clean_to_orig_map.get(COL_SUBMITTED)
-        # --------------------------------------
+        # --- DEBUG EXPANDER ---
+        with st.expander("🛠️ Debug: View Data Headers"):
+            st.write("Here are the exact column names in your data:")
+            st.write(df_id.columns.tolist())
+        # ---------------------
 
         if not df_id.empty:
+            # 1. Define Clean Targets
+            COL_GENUS = "Select the Genus:".strip()
+            COL_SPECIES = "Select the Species:".strip()
+            COL_CONTAINER_LABEL = "Type of container in which the sample was collected from".strip() # Target (Cleaned)
+            COL_SUBMITTED = "_submitted_by".strip()
+
+            # 2. Find Actual Column Names (Robust Search - strips all spaces from headers)
+            # Create a dictionary mapping the cleaned header (key) to the original header (value)
+            clean_to_orig_map = {col.strip(): col for col in df_id.columns}
+
+            col_genus = clean_to_orig_map.get(COL_GENUS)
+            col_species = clean_to_orig_map.get(COL_SPECIES)
+            col_container = clean_to_orig_map.get(COL_CONTAINER_LABEL)
+            col_submitted = clean_to_orig_map.get(COL_SUBMITTED)
+            
+            # --- FALLBACK CHECK for common variations in Peri data ---
+            if not col_container:
+                FALLBACK_KEY = "Type of container the sample was collected from".strip() # Shorter label?
+                col_container = clean_to_orig_map.get(FALLBACK_KEY)
+            # --------------------------------------
+
             col_map_id = {c.lower(): c for c in df_id.columns}
             date_col_id = next((c for c in df_id.columns if c in ['Date', 'today', 'date']), None)
             addr_cols = ['address', 'location', 'premise', 'premises', 'streetname']
@@ -533,7 +545,7 @@ def render_dashboard(selected_key):
                     cont_counts.columns = ['Container', 'Count']
                     fig_c = px.pie(cont_counts, values='Count', names='Container', hole=0.4)
                     st.plotly_chart(fig_c, use_container_width=True)
-                else: st.warning(f"Container data missing. Looked for: '{COL_CONTAINER_LABEL}'")
+                else: st.warning(f"Container data missing. Could not find column: '{COL_CONTAINER_LABEL}'")
 
             with c3:
                 if col_submitted:
@@ -569,7 +581,6 @@ def render_dashboard(selected_key):
             staff_perf.index.name = 'S.No'
             staff_perf = staff_perf.reset_index()
             
-            # REMOVED Larvae ID Entries column
             final_cols_staff = ['S.No', 'Name', 'Days Worked', 'Total Entries', 'Positive Found', 'Positive Containers', 'Container Index']
             
             staff_final = staff_perf[[c for c in final_cols_staff if c in staff_perf.columns]]
