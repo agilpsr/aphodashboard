@@ -13,7 +13,7 @@ import base64
 import datetime
 
 # --- 1. SETUP PAGE CONFIGURATION ---
-st.set_page_config(page_title="APHO Tiruchirappalli Dashboard", layout="wide", page_icon="🦟")
+st.set_page_config(page_title="APHO Tiruchirappalli Dashboard", layout="wide")
 
 # --- INITIALIZE SESSION STATE ---
 if 'reports' not in st.session_state:
@@ -94,7 +94,7 @@ def plot_metric_bar(data, x_col, y_col, title, color_col, range_max=None):
     fig.update_layout(
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
-        font=dict(family="Inter, sans-serif", size=14, color="black"), 
+        font=dict(family="Inter, sans-serif"),
         coloraxis_showscale=False
     )
     fig.update_traces(texttemplate='%{text:.2f}', textposition='outside')
@@ -158,15 +158,6 @@ def get_pdf_bytes(filename):
             return f.read()
     except FileNotFoundError:
         return None
-
-# --- UTILS ---
-def find_column_by_keywords(df, keywords):
-    """Robustly finds a column name containing any of the keywords."""
-    for col in df.columns:
-        for kw in keywords:
-            if kw.lower() in col.lower():
-                return col
-    return None
 
 # --- GLOBAL REPORT FUNCTION ---
 def generate_report_df(df_source, date_col, col_username, selected_key, col_premises, col_subzone, col_street, current_config):
@@ -336,84 +327,84 @@ def inject_custom_css():
         
         html, body, [class*="css"] {
             font-family: 'Inter', sans-serif;
-            font-size: 18px; /* Increased font size */
-            font-weight: 500; /* Bolder */
-            color: #0f172a;
+            background-color: #f0f4f8; /* Very light blue-grey background */
+        }
+        
+        /* The main container background pattern - DOODLE STYLE */
+        .stApp {
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'%3E%3Ctext x='10' y='30' font-size='24' opacity='0.08'%3E✈️%3C/text%3E%3Ctext x='60' y='80' font-size='24' opacity='0.08'%3E🦟%3C/text%3E%3Ctext x='80' y='30' font-size='24' opacity='0.08'%3E🏥%3C/text%3E%3Ctext x='20' y='80' font-size='24' opacity='0.08'%3E🧹%3C/text%3E%3C/svg%3E");
+            background-attachment: fixed;
         }
 
-        /* Gradient Header */
+        /* Header Styling */
         .main-header {
-            background: linear-gradient(135deg, #1E3A8A 0%, #3B82F6 100%);
-            padding: 2.5rem;
+            background: linear-gradient(135deg, #0052cc 0%, #00a3ff 100%);
+            padding: 3rem 1rem;
             border-radius: 0 0 20px 20px;
             color: white;
             text-align: center;
-            margin-bottom: 2.5rem;
-            box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+            margin-bottom: 2rem;
+            box-shadow: 0 8px 20px rgba(0,82,204,0.2);
         }
         .main-header h1 {
             font-weight: 800;
-            font-size: 3rem !important;
-            text-shadow: 0 2px 4px rgba(0,0,0,0.2);
-            color: white !important;
+            letter-spacing: -1px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-        .main-header h3 {
-             color: #e2e8f0 !important;
-             font-weight: 600 !important;
+        
+        /* Card Styling for Content */
+        .block-container {
+            padding-top: 0 !important;
+        }
+        
+        /* Button Styling - BIG TILES */
+        div.stButton > button {
+            width: 100%;
+            height: 100px;
+            font-size: 20px !important;
+            font-weight: 600 !important;
+            color: white !important;
+            background: linear-gradient(135deg, #1E3A8A 0%, #3B82F6 100%);
+            border: none !important;
+            border-radius: 15px !important;
+            box-shadow: 0 6px 12px rgba(30, 58, 138, 0.15) !important;
+            transition: all 0.3s ease !important;
+            margin-bottom: 10px;
+        }
+        div.stButton > button:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(30, 58, 138, 0.25) !important;
         }
         
         /* Metric Cards */
         div[data-testid="stMetric"] {
-            background-color: #ffffff;
-            border: 1px solid #cbd5e1;
+            background-color: white;
             padding: 20px;
             border-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.08);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            border: 1px solid #eef2f6;
             text-align: center;
         }
         div[data-testid="stMetricLabel"] {
-            font-size: 1.1rem !important;
-            color: #475569;
-            font-weight: 700;
+            font-size: 0.9rem;
+            color: #64748b;
+            font-weight: 600;
         }
         div[data-testid="stMetricValue"] {
-            font-size: 2.2rem !important;
-            color: #1e293b;
-            font-weight: 800;
+            font-size: 1.8rem;
+            color: #0f172a;
+            font-weight: 700;
         }
 
-        /* Buttons */
-        div.stButton > button {
-            width: 100%;
-            height: 110px;
-            font-size: 24px !important;
-            font-weight: 700 !important;
-            color: white !important;
-            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
-            border: none !important;
-            border-radius: 16px !important;
-            box-shadow: 0 6px 12px rgba(30, 58, 138, 0.2) !important;
-            transition: transform 0.2s ease, box-shadow 0.2s ease !important;
-        }
-        div.stButton > button:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 10px 20px rgba(30, 58, 138, 0.3) !important;
-        }
-
-        /* Table */
-        div[data-testid="stDataFrame"] {
-            border: 1px solid #cbd5e1;
+        /* Container opacity for readability over doodles */
+        .element-container, .stDataFrame, .stTable {
+            background-color: rgba(255, 255, 255, 0.9);
             border-radius: 10px;
-            font-size: 16px;
+            padding: 10px;
         }
-
+        
         </style>
     """, unsafe_allow_html=True)
-
-@st.dialog("🌍 Expanded Geo-Spatial Map", width="large")
-def show_large_map(m):
-    # Added unique key to st_folium inside dialog to prevent ID collision
-    st_folium(m, height=700, width=1200, use_container_width=True, key="large_map_dialog")
 
 # --- MAIN DASHBOARD RENDERER ---
 def render_dashboard(selected_key):
@@ -421,13 +412,14 @@ def render_dashboard(selected_key):
     
     current_config = SECTION_CONFIG[selected_key]
     
+    # Styled Header
     st.markdown(f"""
         <div class="main-header">
             <h1>{current_config.get('icon', '')} {current_config['title']}</h1>
         </div>
     """, unsafe_allow_html=True)
 
-    # --- ACTION REPORTS & SANITARY REPORTS LOGIC ---
+    # --- ACTION REPORTS & SANITARY REPORTS LOGIC (Dynamic Data Source) ---
     if selected_key in ['anti_larval', 'sanitary']:
         with st.spinner('Fetching Reports...'):
             df_action = load_kobo_data(current_config['surv_url'])
@@ -444,14 +436,19 @@ def render_dashboard(selected_key):
         if selected_key == 'anti_larval':
             target_key = "upload action taken report (pdf) _url"
             pdf_col = clean_cols.get(target_key)
-            if not pdf_col: pdf_col = next((c for c in df_action.columns if 'pdf' in c.lower() and 'url' in c.lower()), None)
-            if pdf_col: column_config[pdf_col] = st.column_config.LinkColumn("Action Report", display_text="📥 Download PDF")
+            if not pdf_col:
+                 pdf_col = next((c for c in df_action.columns if 'pdf' in c.lower() and 'url' in c.lower()), None)
+            
+            if pdf_col:
+                column_config[pdf_col] = st.column_config.LinkColumn("Action Report", display_text="📥 Download PDF")
 
         elif selected_key == 'sanitary':
             target_sanitary = "upload sanitary inspection report (pdf) _url"
             target_toilet = "upload toilet inspection report(pdf) _url"
+            
             sanitary_col = clean_cols.get(target_sanitary)
             if not sanitary_col: sanitary_col = next((c for c in df_action.columns if 'sanitary' in c.lower() and 'url' in c.lower()), None)
+            
             toilet_col = clean_cols.get(target_toilet)
             if not toilet_col: toilet_col = next((c for c in df_action.columns if 'toilet' in c.lower() and 'url' in c.lower()), None)
             
@@ -463,20 +460,35 @@ def render_dashboard(selected_key):
         system_cols = ['start', 'end', '_id', '_uuid', '_submission_time', '_validation_status', '_notes', '_status', '_submitted_by', '__version__', '_tags', '_index']
         display_cols = [c for c in df_action.columns if c not in system_cols]
         
-        st.dataframe(df_action[display_cols], column_config=column_config, use_container_width=True, hide_index=True)
+        st.dataframe(
+            df_action[display_cols],
+            column_config=column_config,
+            use_container_width=True,
+            hide_index=True
+        )
         st.stop()
 
     # --- ZONING MAP BUTTON ---
-    if selected_key == 'peri': pdf_file_name = "zoning.pdf"
-    elif selected_key == 'intra': pdf_file_name = "zoninginside.pdf"
-    else: pdf_file_name = None 
-    
+    if selected_key == 'peri':
+        pdf_file_name = "zoning.pdf"
+    elif selected_key == 'intra':
+        pdf_file_name = "zoninginside.pdf"
+    else:
+        pdf_file_name = None 
+        
     if pdf_file_name:
         col_map, _ = st.columns([1, 5])
         with col_map:
             pdf_bytes = get_pdf_bytes(pdf_file_name)
             if pdf_bytes:
-                st.download_button(label="🗺️ View Zoning Map (PDF)", data=pdf_bytes, file_name=pdf_file_name, mime="application/pdf", key=f'download_pdf_{selected_key}', use_container_width=True)
+                st.download_button(
+                    label="🗺️ View Zoning Map",
+                    data=pdf_bytes,
+                    file_name=pdf_file_name,
+                    mime="application/pdf",
+                    key=f'download_pdf_{selected_key}',
+                    use_container_width=True
+                )
 
     with st.spinner('Fetching Surveillance data...'):
         df = load_kobo_data(current_config['surv_url'])
@@ -485,12 +497,6 @@ def render_dashboard(selected_key):
         st.info("No data found or error loading Kobo data.")
         return
     
-    # --- ROBUST CALCULATION (The Fix for Peri Map) ---
-    col_pos_house_raw = find_column_by_keywords(df, ["how_many_wet_containers_were_found_positive", "among_the_wet", "positive_premises"])
-    col_pos_cont_raw = find_column_by_keywords(df, ["how_many_wet_containers_were_found_positive", "positive_containers"])
-    col_wet_cont_raw = find_column_by_keywords(df, ["wet_containers", "wet container", "wet_containers_inspected"])
-    col_dry_cont_raw = find_column_by_keywords(df, ["dry_container", "dry container"])
-
     # --- START FILTERING ---
     st.sidebar.markdown("### 🔍 Filters") 
     df_filtered = df.copy()
@@ -501,13 +507,12 @@ def render_dashboard(selected_key):
     col_street = col_map_lower.get('streetname')
     col_username = col_map_lower.get('username')
     col_premises = "Premises" if "Premises" in df.columns else col_map_lower.get('premises')
-    
-    # Attempt to find GPS columns robustly
-    col_lat = next((c for c in df.columns if 'location' in c.lower() and 'latitude' in c.lower()), None)
-    if not col_lat: col_lat = next((c for c in df.columns if 'latitude' in c.lower()), None)
-    col_lon = next((c for c in df.columns if 'location' in c.lower() and 'longitude' in c.lower()), None)
-    if not col_lon: col_lon = next((c for c in df.columns if 'longitude' in c.lower()), None)
-    
+    col_pos_house_raw = "Among_the_wet_containers_how_"
+    col_pos_cont_raw = "Among_the_wet_containers_how_"
+    col_wet_cont_raw = "Number_of_wet_containers_found" if "Number_of_wet_containers_found" in df.columns else "Number_of_wet_containers_"
+    col_dry_cont_raw = "number_of_dry_contai_tentially_hold_water"
+    col_lat = "_Location_latitude"
+    col_lon = "_Location_longitude"
     date_col = "Date" if "Date" in df.columns else col_map_lower.get('date')
     if not date_col:
         for c in ['today', 'start', '_submission_time']:
@@ -522,28 +527,33 @@ def render_dashboard(selected_key):
         end_date = d2.date_input("End", max_date, key=f"end_date_{selected_key}")
         mask = (df_filtered[date_col].dt.date >= start_date) & (df_filtered[date_col].dt.date <= end_date)
         df_filtered = df_filtered.loc[mask]
-        
-    # --- DEBUGGING FOR PERI AIRPORT COLUMNS (Can Remove Later) ---
-    if selected_key == 'peri':
-        with st.expander("🛠️ Debug: View Peri Data Columns"):
-            st.write(df.columns.tolist())
-            
+
     # --- FLIGHTS SCREENING SUMMARY ---
     if selected_key == 'flights':
         clean_cols = {c.strip().lower(): c for c in df.columns}
         staff1_col = clean_cols.get("flight_duty_personnel") 
         staff2_col = clean_cols.get("deputy")
+        
         if not staff1_col: staff1_col = next((c for c in df.columns if "duty" in c.lower() and "personnel" in c.lower()), None)
         if not staff2_col: staff2_col = next((c for c in df.columns if "deputy" in c.lower()), None)
 
         if staff1_col and staff2_col:
             all_staff = pd.concat([df_filtered[staff1_col].dropna(), df_filtered[staff2_col].dropna()]).astype(str).unique().tolist()
             st.sidebar.markdown("#### Staff Filter")
-            selected_personnel = st.sidebar.multiselect("Select Duty Personnel", sorted(all_staff), key=f"personnel_filter_{selected_key}")
+            selected_personnel = st.sidebar.multiselect(
+                "Select Duty Personnel", 
+                sorted(all_staff), 
+                key=f"personnel_filter_{selected_key}"
+            )
             if selected_personnel:
-                mask = (df_filtered[staff1_col].astype(str).isin(selected_personnel)) | (df_filtered[staff2_col].astype(str).isin(selected_personnel))
+                mask = (df_filtered[staff1_col].astype(str).isin(selected_personnel)) | \
+                       (df_filtered[staff2_col].astype(str).isin(selected_personnel))
                 df_filtered = df_filtered[mask]
         
+        if df_filtered.empty:
+            st.info("No data available for the selected filters.")
+            st.stop()
+
         st.markdown("#### ✈️ Data Summary")
         summary_data = []
         total_entries = len(df_filtered)
@@ -560,6 +570,7 @@ def render_dashboard(selected_key):
                 
         summary_df = pd.DataFrame(summary_data, columns=["Metric", "Value"])
         st.table(summary_df)
+        
         st.download_button("Download Raw Flights Data", to_excel(df_filtered), "Flights_Raw_Data_Filtered.xlsx", key="flights_raw_download")
         st.stop()
 
@@ -590,6 +601,7 @@ def render_dashboard(selected_key):
             if date_col: agg_dict[date_col] = 'first'
             for c in [col_zone, col_lat, col_lon, col_premises, col_username]:
                 if c and c in df_filtered.columns: agg_dict[c] = 'first'
+            
             df_grouped = df_filtered.groupby('unique_premise_id', as_index=False).agg(agg_dict)
             
             total_unique_premises = df_grouped['unique_premise_id'].nunique()
@@ -603,8 +615,8 @@ def render_dashboard(selected_key):
         else: df_for_graphs = df_filtered.copy()
     else:
         display_count = len(df_filtered)
-        # Recalculate based on filtered data
-        positive_count = (df_filtered['pos_house_calc'] > 0).sum()
+        df_filtered['is_positive_house'] = df_filtered['pos_house_calc'].apply(lambda x: 1 if x > 0 else 0)
+        positive_count = df_filtered['is_positive_house'].sum()
         if display_count > 0:
             hi_val = (positive_count / display_count) * 100
             ci_val = (df_filtered['pos_cont_calc'].sum() / df_filtered['wet_cont_calc'].sum() * 100) if df_filtered['wet_cont_calc'].sum() > 0 else 0
@@ -687,40 +699,15 @@ def render_dashboard(selected_key):
                 else:
                     st.warning("Premises data not available for graphing.")
 
-    with st.expander("🌍 Geo-Spatial Map", expanded=True):
+    with st.expander("🌍 Geo-Spatial Map", expanded=False):
         if col_lat in df_for_graphs.columns and col_lon in df_for_graphs.columns:
             map_df = df_for_graphs.dropna(subset=[col_lat, col_lon]).copy()
             if not map_df.empty:
-                # --- FIX: Dynamic column selection for tooltips ---
-                # Peri wants columns 7,8,9,10,14 which usually are Zone, Street, House No, etc.
-                # Since column indices shift, we find them by name mostly.
-                
-                # Try to find House Number
-                col_house = next((c for c in df_filtered.columns if 'house' in c.lower() and 'number' in c.lower()), None)
-                if not col_house: col_house = next((c for c in df_filtered.columns if 'door' in c.lower() and 'number' in c.lower()), None)
-                
-                # Try to find Street Name
-                col_street_map = col_street if col_street else next((c for c in df_filtered.columns if 'street' in c.lower()), None)
-
-                m = folium.Map(location=[map_df[col_lat].mean(), map_df[col_lon].mean()], zoom_start=14)
+                m = folium.Map(location=[map_df[col_lat].mean(), map_df[col_lon].mean()], zoom_start=13)
                 for _, row in map_df.iterrows():
                     color = '#00ff00' if row['pos_house_calc'] == 0 else '#ff0000'
-                    
-                    if selected_key == 'intra':
-                        tooltip_html = f"<b>Premises:</b> {row.get(col_premises, 'N/A')}<br><b>Pos Containers:</b> {row.get('pos_cont_calc', 0)}"
-                    else:
-                        # Peri-specific robust tooltip
-                        # Only show lat/long or basic ID if columns are missing to prevent crash
-                        tooltip_html = f"<b>Pos Containers:</b> {row.get('pos_cont_calc', 0)}"
-
-                    folium.CircleMarker(
-                        [row[col_lat], row[col_lon]], radius=7, color=color, fill=True, fill_color=color,
-                        tooltip=tooltip_html 
-                    ).add_to(m)
-                
-                st_folium(m, height=700, use_container_width=True, key=f"main_map_{selected_key}")
-            else:
-                 st.info("No GPS data found to render map.")
+                    folium.CircleMarker([row[col_lat], row[col_lon]], radius=6, color=color, fill=True, fill_color=color).add_to(m)
+                st_folium(m, height=400)
 
     if current_config.get('id_url'):
         with st.expander("🔬 Larvae Identification Data", expanded=False):
