@@ -111,7 +111,10 @@ def show_image_popup(row_data):
     else:
         st.warning("⚠️ No image URL found.")
 
-# Removed def get_base64_of_bin_file(bin_file):
+def get_base64_of_bin_file(bin_file):
+    with open(bin_file, 'rb') as f:
+        data = f.read()
+    return base64.b64encode(data).decode()
 
 # --- FILE HANDLERS ---
 def get_pdf_bytes(filename):
@@ -248,8 +251,20 @@ def generate_narrative_summary(df, selected_key, date_col, col_street, col_subzo
 
 # --- PASSWORD FUNCTION ---
 def check_password_on_home():
-    # Function removed in final version, kept here as placeholder for clarity
-    pass
+    def password_entered():
+        # This function is not called in the current execution flow but kept for structure
+        if "password" in st.session_state and st.session_state["password"] == "Aphotrz@2025":
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]
+        else:
+            st.session_state["password_correct"] = False
+    
+    if st.session_state.get("password_correct", False): return True
+    
+    st.text_input("🔒 Enter Password to Login", type="password", on_change=password_entered, key="password")
+    if "password_correct" in st.session_state and not st.session_state["password_correct"]:
+        st.error("❌ Password incorrect")
+    return False
 
 # --- MAIN DASHBOARD RENDERER ---
 def render_dashboard(selected_key):
@@ -286,7 +301,44 @@ def render_dashboard(selected_key):
         st.info("No data found or error loading Kobo data.")
         return
 
-    # Column Mapping
+    # --- FLIGHTS SCREENING SUMMARY (Special Case) ---
+    if selected_key == 'flights':
+        st.header("International Flights Screening Data Summary")
+        
+        # 1. Initialize summary
+        summary_data = []
+        
+        # 2. Total Entries (Flights Screened)
+        total_entries = len(df)
+        summary_data.append(["Total International Flights Screened", total_entries])
+        
+        # 3. Sum of Other Variables
+        numeric_df = df.select_dtypes(include=['number']).fillna(0)
+        
+        # List of columns to explicitly skip from summation (Kobo metadata)
+        exclude_cols = ['_index', 'latitude', 'longitude', 'accuracy', '_id', 'instanceid'] 
+        
+        for col in numeric_df.columns:
+            # Check for columns starting with '_' or in the exclude list
+            if not col.startswith('_') and col.lower() not in exclude_cols:
+                col_sum = numeric_df[col].sum()
+                summary_data.append([col, f"{col_sum:,.0f}"]) # Use 0 decimal for sums unless otherwise specified
+                
+        summary_df = pd.DataFrame(summary_data, columns=["Metric", "Value"])
+        
+        st.table(summary_df)
+        st.download_button(
+            "Download Raw Flights Data",
+            to_excel(df),
+            "Flights_Raw_Data.xlsx",
+            key="flights_raw_download"
+        )
+        st.stop()
+    # --- END FLIGHTS SCREENING SUMMARY ---
+
+    # --- START OF STANDARD DASHBOARD (Peri/Intra) ---
+
+    # Column Mapping (Standard Dashboard Logic)
     col_map_lower = {c.lower(): c for c in df.columns}
     col_zone = col_map_lower.get('zone')
     col_subzone = col_map_lower.get('subzone')
@@ -312,7 +364,6 @@ def render_dashboard(selected_key):
         df_filtered[date_col] = pd.to_datetime(df_filtered[date_col])
         min_date, max_date = df_filtered[date_col].min().date(), df_filtered[date_col].max().date()
         d1, d2 = st.sidebar.columns(2)
-        # --- FIX: Added unique keys to sidebar date inputs ---
         start_date = d1.date_input("Start", min_date, key=f"start_date_{selected_key}")
         end_date = d2.date_input("End", max_date, key=f"end_date_{selected_key}")
         mask = (df_filtered[date_col].dt.date >= start_date) & (df_filtered[date_col].dt.date <= end_date)
@@ -648,7 +699,7 @@ def render_dashboard(selected_key):
 
 # --- HOME PAGE LOGIC ---
 def render_home_page():
-    # --- CSS: REMOVE BACKGROUND IMAGE AND OPAQUE LAYER ---
+    # --- CSS: REMOVE BACKGROUND IMAGE ---
     st.markdown("""
         <style>
         .stApp {
@@ -656,7 +707,7 @@ def render_home_page():
             background-image: none !important;
             background-color: white !important;
         }
-        /* Remove the white opaque background on content area */
+        /* Dashboard content now rests on the clean background */
         .main .block-container { 
             background-color: transparent !important; 
             border-radius: 0px !important;
