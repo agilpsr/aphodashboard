@@ -159,6 +159,15 @@ def get_pdf_bytes(filename):
     except FileNotFoundError:
         return None
 
+# --- UTILS ---
+def find_column_by_keywords(df, keywords):
+    """Robustly finds a column name containing any of the keywords."""
+    for col in df.columns:
+        for kw in keywords:
+            if kw.lower() in col.lower():
+                return col
+    return None
+
 # --- GLOBAL REPORT FUNCTION ---
 def generate_report_df(df_source, date_col, col_username, selected_key, col_premises, col_subzone, col_street, current_config):
     with st.spinner("Fetching Identification Data..."):
@@ -476,6 +485,31 @@ def render_dashboard(selected_key):
         st.info("No data found or error loading Kobo data.")
         return
     
+    # --- ROBUST CALCULATION (The Fix for Peri Map) ---
+    # Find columns by flexible keywords
+    col_pos_raw = find_column_by_keywords(df, ["found_positive", "positive_for_larvae", "among_the_wet", "how_many_wet_containers_were_found_positive"])
+    col_wet_raw = find_column_by_keywords(df, ["wet_containers", "wet container", "wet_containers_inspected"])
+    col_dry_raw = find_column_by_keywords(df, ["dry_container", "dry container"])
+
+    # Safely create calculated columns, filling with 0 if missing
+    if col_pos_raw:
+        df['pos_house_calc'] = pd.to_numeric(df[col_pos_raw], errors='coerce').fillna(0)
+        df['pos_cont_calc'] = pd.to_numeric(df[col_pos_raw], errors='coerce').fillna(0)
+    else:
+        df['pos_house_calc'] = 0
+        df['pos_cont_calc'] = 0
+
+    if col_wet_raw:
+        df['wet_cont_calc'] = pd.to_numeric(df[col_wet_raw], errors='coerce').fillna(0)
+    else:
+        df['wet_cont_calc'] = 0
+
+    if col_dry_raw:
+        df['dry_cont_calc'] = pd.to_numeric(df[col_dry_raw], errors='coerce').fillna(0)
+    else:
+        df['dry_cont_calc'] = 0
+
+
     # --- START FILTERING ---
     st.sidebar.markdown("### 🔍 Filters") 
     df_filtered = df.copy()
@@ -486,16 +520,10 @@ def render_dashboard(selected_key):
     col_street = col_map_lower.get('streetname')
     col_username = col_map_lower.get('username')
     col_premises = "Premises" if "Premises" in df.columns else col_map_lower.get('premises')
-    col_pos_house_raw = "Among_the_wet_containers_how_"
-    col_pos_cont_raw = "Among_the_wet_containers_how_"
-    col_wet_cont_raw = "Number_of_wet_containers_found" if "Number_of_wet_containers_found" in df.columns else "Number_of_wet_containers_"
-    col_dry_cont_raw = "number_of_dry_contai_tentially_hold_water"
     
-    # --- FIXED GPS SEARCH ---
-    # Looking for 'Location_latitude' (standard Kobo) or '_Location_latitude' (internal) or 'latitude'
+    # Attempt to find GPS columns robustly
     col_lat = next((c for c in df.columns if 'location' in c.lower() and 'latitude' in c.lower()), None)
     if not col_lat: col_lat = next((c for c in df.columns if 'latitude' in c.lower()), None)
-
     col_lon = next((c for c in df.columns if 'location' in c.lower() and 'longitude' in c.lower()), None)
     if not col_lon: col_lon = next((c for c in df.columns if 'longitude' in c.lower()), None)
     
@@ -568,15 +596,11 @@ def render_dashboard(selected_key):
         if st.session_state.get(f"subzone_filter_{selected_key}"):
              df_filtered = df_filtered[df_filtered[col_subzone].astype(str).isin(st.session_state[f"subzone_filter_{selected_key}"])]
 
-    # Calcs
-    for col, raw_col in [('pos_house_calc', col_pos_house_raw), ('pos_cont_calc', col_pos_cont_raw), ('wet_cont_calc', col_wet_cont_raw)]:
-        df_filtered[col] = pd.to_numeric(df_filtered[raw_col], errors='coerce').fillna(0) if raw_col in df_filtered.columns else 0
-    df_filtered['dry_cont_calc'] = pd.to_numeric(df_filtered[col_dry_cont_raw], errors='coerce').fillna(0) if col_dry_cont_raw in df_filtered.columns else 0
-
     display_count, positive_count, hi_val, ci_val, bi_val = 0, 0, 0, 0, 0
     if selected_key == 'intra':
         if col_premises and date_col:
             df_filtered['unique_premise_id'] = df_filtered[date_col].dt.date.astype(str) + "_" + df_filtered[col_premises].apply(normalize_string)
+            # Calculations are now done upstream, we aggregate them
             agg_dict = {'pos_house_calc': 'max', 'pos_cont_calc': 'sum', 'wet_cont_calc': 'sum', 'dry_cont_calc': 'sum'}
             if date_col: agg_dict[date_col] = 'first'
             for c in [col_zone, col_lat, col_lon, col_premises, col_username]:
@@ -594,8 +618,8 @@ def render_dashboard(selected_key):
         else: df_for_graphs = df_filtered.copy()
     else:
         display_count = len(df_filtered)
-        df_filtered['is_positive_house'] = df_filtered['pos_house_calc'].apply(lambda x: 1 if x > 0 else 0)
-        positive_count = df_filtered['is_positive_house'].sum()
+        # Recalculate based on filtered data
+        positive_count = (df_filtered['pos_house_calc'] > 0).sum()
         if display_count > 0:
             hi_val = (positive_count / display_count) * 100
             ci_val = (df_filtered['pos_cont_calc'].sum() / df_filtered['wet_cont_calc'].sum() * 100) if df_filtered['wet_cont_calc'].sum() > 0 else 0
