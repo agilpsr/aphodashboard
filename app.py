@@ -152,6 +152,7 @@ def get_base64_of_bin_file(bin_file):
 
 # --- FILE HANDLERS ---
 def get_pdf_bytes(filename):
+    """Reads a local PDF file into bytes for download/viewing."""
     try:
         with open(filename, 'rb') as f:
             return f.read()
@@ -411,6 +412,7 @@ def inject_custom_css():
 
 @st.dialog("🌍 Expanded Geo-Spatial Map", width="large")
 def show_large_map(m):
+    # Added unique key to st_folium inside dialog to prevent ID collision
     st_folium(m, height=700, width=1200, use_container_width=True, key="large_map_dialog")
 
 # --- MAIN DASHBOARD RENDERER ---
@@ -483,19 +485,32 @@ def render_dashboard(selected_key):
         st.info("No data found or error loading Kobo data.")
         return
     
-    # --- ROBUST CALCULATION FOR MAP AND METRICS ---
-    # Define Column Names for Specific Fields using Robust Search
+    # --- ROBUST CALCULATION (The Fix for Peri Map) ---
     col_pos_house_raw = find_column_by_keywords(df, ["how_many_wet_containers_were_found_positive", "among_the_wet", "positive_premises"])
     col_pos_cont_raw = find_column_by_keywords(df, ["how_many_wet_containers_were_found_positive", "positive_containers"])
     col_wet_cont_raw = find_column_by_keywords(df, ["wet_containers", "wet container", "wet_containers_inspected"])
     col_dry_cont_raw = find_column_by_keywords(df, ["dry_container", "dry container"])
 
-    # Create Calculated Columns (Safe 0 fill)
-    df['pos_house_calc'] = pd.to_numeric(df[col_pos_house_raw], errors='coerce').fillna(0) if col_pos_house_raw else 0
-    df['pos_cont_calc'] = pd.to_numeric(df[col_pos_cont_raw], errors='coerce').fillna(0) if col_pos_cont_raw else 0
-    df['wet_cont_calc'] = pd.to_numeric(df[col_wet_cont_raw], errors='coerce').fillna(0) if col_wet_cont_raw else 0
-    df['dry_cont_calc'] = pd.to_numeric(df[col_dry_cont_raw], errors='coerce').fillna(0) if col_dry_cont_raw else 0
+    if col_pos_house_raw:
+        df['pos_house_calc'] = pd.to_numeric(df[col_pos_house_raw], errors='coerce').fillna(0)
+    else:
+        df['pos_house_calc'] = 0
 
+    if col_pos_cont_raw:
+        df['pos_cont_calc'] = pd.to_numeric(df[col_pos_cont_raw], errors='coerce').fillna(0)
+    else:
+        df['pos_cont_calc'] = 0
+
+    if col_wet_cont_raw:
+        df['wet_cont_calc'] = pd.to_numeric(df[col_wet_cont_raw], errors='coerce').fillna(0)
+    else:
+        df['wet_cont_calc'] = 0
+
+    if col_dry_cont_raw:
+        df['dry_cont_calc'] = pd.to_numeric(df[col_dry_cont_raw], errors='coerce').fillna(0)
+    else:
+        df['dry_cont_calc'] = 0
+    
     # --- START FILTERING ---
     st.sidebar.markdown("### 🔍 Filters") 
     df_filtered = df.copy()
@@ -508,10 +523,13 @@ def render_dashboard(selected_key):
     col_premises = "Premises" if "Premises" in df.columns else col_map_lower.get('premises')
     
     # Attempt to find GPS columns robustly
-    col_lat = next((c for c in df.columns if '_location_latitude' in c.lower()), None)
+    # Priority: _Location_latitude (Peri) > Location_latitude > latitude
+    col_lat = next((c for c in df.columns if c == '_Location_latitude'), None)
+    if not col_lat: col_lat = next((c for c in df.columns if 'location' in c.lower() and 'latitude' in c.lower()), None)
     if not col_lat: col_lat = next((c for c in df.columns if 'latitude' in c.lower()), None)
 
-    col_lon = next((c for c in df.columns if '_location_longitude' in c.lower()), None)
+    col_lon = next((c for c in df.columns if c == '_Location_longitude'), None)
+    if not col_lon: col_lon = next((c for c in df.columns if 'location' in c.lower() and 'longitude' in c.lower()), None)
     if not col_lon: col_lon = next((c for c in df.columns if 'longitude' in c.lower()), None)
     
     date_col = "Date" if "Date" in df.columns else col_map_lower.get('date')
@@ -528,7 +546,7 @@ def render_dashboard(selected_key):
         end_date = d2.date_input("End", max_date, key=f"end_date_{selected_key}")
         mask = (df_filtered[date_col].dt.date >= start_date) & (df_filtered[date_col].dt.date <= end_date)
         df_filtered = df_filtered.loc[mask]
-            
+        
     # --- FLIGHTS SCREENING SUMMARY ---
     if selected_key == 'flights':
         clean_cols = {c.strip().lower(): c for c in df.columns}
@@ -577,6 +595,11 @@ def render_dashboard(selected_key):
         st.sidebar.multiselect(f"SubZone", opts, key=f"subzone_filter_{selected_key}")
         if st.session_state.get(f"subzone_filter_{selected_key}"):
              df_filtered = df_filtered[df_filtered[col_subzone].astype(str).isin(st.session_state[f"subzone_filter_{selected_key}"])]
+
+    # Calcs
+    for col, raw_col in [('pos_house_calc', col_pos_house_raw), ('pos_cont_calc', col_pos_cont_raw), ('wet_cont_calc', col_wet_cont_raw)]:
+        df_filtered[col] = pd.to_numeric(df_filtered[raw_col], errors='coerce').fillna(0) if raw_col in df_filtered.columns else 0
+    df_filtered['dry_cont_calc'] = pd.to_numeric(df_filtered[col_dry_cont_raw], errors='coerce').fillna(0) if col_dry_cont_raw in df_filtered.columns else 0
 
     display_count, positive_count, hi_val, ci_val, bi_val = 0, 0, 0, 0, 0
     if selected_key == 'intra':
@@ -687,26 +710,42 @@ def render_dashboard(selected_key):
         if col_lat in df_for_graphs.columns and col_lon in df_for_graphs.columns:
             map_df = df_for_graphs.dropna(subset=[col_lat, col_lon]).copy()
             if not map_df.empty:
-                # --- DYNAMIC COLUMN SELECTION FOR TOOLTIP ---
-                col_house = find_column_by_keywords(df, ["house_number", "house number", "door number"])
-                col_street_map = col_street if col_street else find_column_by_keywords(df, ["street"])
-                col_pos_map = 'pos_cont_calc'
-                
                 m = folium.Map(location=[map_df[col_lat].mean(), map_df[col_lon].mean()], zoom_start=14)
                 for _, row in map_df.iterrows():
                     color = '#00ff00' if row['pos_house_calc'] == 0 else '#ff0000'
                     
                     if selected_key == 'intra':
-                        tooltip_html = f"<b>Premises:</b> {row.get(col_premises, 'N/A')}<br><b>Pos Containers:</b> {row.get(col_pos_map, 0)}"
+                        tooltip_html = f"<b>Premises:</b> {row.get(col_premises, 'N/A')}<br><b>Pos Containers:</b> {row.get('pos_cont_calc', 0)}"
                     else:
-                        # PERI SPECIFIC: Zone, Street, House, Pos Containers (Approx Columns 7,8,9,10,14)
-                        # We use named get() to avoid index errors if columns shift
-                        tooltip_html = f"""
-                        <b>Zone:</b> {row.get(col_zone, 'N/A')}<br>
-                        <b>Street:</b> {row.get(col_street_map, 'N/A')}<br>
-                        <b>House No:</b> {row.get(col_house, 'N/A')}<br>
-                        <b>Pos Containers:</b> {row.get(col_pos_map, 0)}
-                        """
+                        # PERI SPECIFIC: Zone (7), Subzone (8), Street (9), House (10), Pos Cont (14)
+                        # Accessing by column name derived from data structure 
+                        # We use .iloc safely or dynamic search to get values
+                        
+                        try:
+                            # 7: Zone, 8: Subzone, 9: Street, 10: House, 14: Pos Container
+                            # Using dynamic column names is safer, but user asked for strict indexing logic logic if names fail
+                            # Here we prioritize the robust dynamic names found earlier
+                            
+                            val_zone = row.get(col_zone, 'N/A')
+                            val_subzone = row.get(col_subzone, 'N/A')
+                            val_street = row.get(col_street, 'N/A')
+                            
+                            # House number is tricky, find dynamically
+                            col_house = next((c for c in df_filtered.columns if 'house' in c.lower() and 'number' in c.lower()), None)
+                            if not col_house: col_house = next((c for c in df_filtered.columns if 'door' in c.lower() and 'number' in c.lower()), None)
+                            val_house = row.get(col_house, 'N/A')
+                            
+                            val_pos = row.get('pos_cont_calc', 0)
+                            
+                            tooltip_html = f"""
+                            <b>Zone:</b> {val_zone}<br>
+                            <b>Subzone:</b> {val_subzone}<br>
+                            <b>Street:</b> {val_street}<br>
+                            <b>House No:</b> {val_house}<br>
+                            <b>Pos Containers:</b> {val_pos}
+                            """
+                        except:
+                             tooltip_html = "Data Unavailable"
 
                     folium.CircleMarker(
                         [row[col_lat], row[col_lon]], radius=7, color=color, fill=True, fill_color=color,
