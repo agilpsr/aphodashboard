@@ -90,6 +90,7 @@ def get_high_res_url(original_url):
 
 @st.dialog("🔬 Larvae Microscopic View", width="large")
 def show_image_popup(row_data):
+    # SPECIFIC COLUMN NAMES AS REQUESTED
     col_genus = "Select the Genus:"
     col_species = "Select the Species:"
     col_container = "Type of container the sample was collected from"
@@ -120,7 +121,7 @@ def get_base64_of_bin_file(bin_file):
         data = f.read()
     return base64.b64encode(data).decode()
 
-# --- MOVED TO GLOBAL SCOPE TO FIX NAME ERROR ---
+# --- GLOBAL REPORT FUNCTION ---
 def generate_report_df(df_source, date_col, col_username, selected_key, col_premises, col_subzone, col_street, current_config):
     with st.spinner("Fetching Identification Data..."):
         df_id_rep = load_kobo_data(current_config['id_url'])
@@ -325,9 +326,7 @@ def render_dashboard(selected_key):
             df_filtered['unique_premise_id'] = df_filtered[date_col].dt.date.astype(str) + "_" + df_filtered[col_premises].apply(normalize_string)
             agg_dict = {'pos_house_calc': 'max', 'pos_cont_calc': 'sum', 'wet_cont_calc': 'sum', 'dry_cont_calc': 'sum'}
             
-            # --- FIX 1: Ensure date_col is preserved in aggregation for Intra graphs ---
             if date_col: agg_dict[date_col] = 'first'
-            
             for c in [col_zone, col_lat, col_lon, col_premises, col_username]:
                 if c and c in df_filtered.columns: agg_dict[c] = 'first'
             
@@ -446,18 +445,27 @@ def render_dashboard(selected_key):
     # --- LARVAE ID TABLE (COLLAPSIBLE) ---
     with st.expander("🔬 Larvae Identification Data (Click to Expand)", expanded=False):
         df_id = load_kobo_data(current_config['id_url'])
+        
         if not df_id.empty:
+            # 1. Map Columns
             col_map_id = {c.lower(): c for c in df_id.columns}
             date_col_id = next((c for c in df_id.columns if c in ['Date', 'today', 'date']), None)
+            
+            # Address mapping
             addr_cols = ['address', 'location', 'premise', 'premises', 'streetname']
             col_address_id = next((col_map_id.get(k) for k in addr_cols if col_map_id.get(k)), 'N/A')
+            
+            # Image URL mapping
             img_search = ["Attach the microscopic image of the larva _URL", "Attach the microscopic image of the larva_URL", "image_url", "url"]
             col_img = next((c for c in img_search if c in df_id.columns), None)
             
+            # Key Columns - Explicit Names
             col_genus = "Select the Genus:"
             col_species = "Select the Species:"
             col_container = "Type of container the sample was collected from"
+            col_submitted = "_submitted_by"
 
+            # 2. Process Data
             if date_col_id: df_id[date_col_id] = pd.to_datetime(df_id[date_col_id])
             df_display = pd.DataFrame()
             df_display['Date'] = df_id[date_col_id].dt.date if date_col_id else 'N/A'
@@ -465,6 +473,7 @@ def render_dashboard(selected_key):
             df_display['Genus'] = df_id[col_genus] if col_genus in df_id.columns else 'N/A'
             df_display['Species'] = df_id[col_species] if col_species in df_id.columns else 'N/A'
             
+            # Create Thumbnail Column
             if col_img:
                 df_display['Thumbnail'] = df_id[col_img].apply(get_thumbnail_url)
                 df_id['Original_Image_URL'] = df_id[col_img]
@@ -472,19 +481,31 @@ def render_dashboard(selected_key):
                 df_display['Thumbnail'] = None
                 df_id['Original_Image_URL'] = None
 
+            # Add index as S.No
             df_display = df_display.reset_index(drop=True)
             df_display.index += 1
             df_display.index.name = "S.No"
             df_display = df_display.reset_index()
+
+            # Align for popup data
             df_id['Calculated_Address'] = df_display['Address']
             
             st.info("💡 Click on a row to view full details and image.")
+            
+            # 3. Display Interactive Table
             event = st.dataframe(
                 df_display,
                 column_order=["S.No", "Date", "Address", "Thumbnail", "Genus", "Species"],
-                column_config={"Thumbnail": st.column_config.ImageColumn("Microscopic Image", width="small")},
-                hide_index=True, use_container_width=True, on_select="rerun", selection_mode="single-row"
+                column_config={
+                    "Thumbnail": st.column_config.ImageColumn("Microscopic Image", width="small"),
+                },
+                hide_index=True,
+                use_container_width=True,
+                on_select="rerun",
+                selection_mode="single-row"
             )
+
+            # 4. Handle Popup
             if len(event.selection.rows) > 0:
                 selected_index = event.selection.rows[0]
                 original_row = df_id.iloc[selected_index]
@@ -492,8 +513,10 @@ def render_dashboard(selected_key):
 
             st.divider()
             
-            # --- 3 PIE CHARTS (GENUS, SPECIES, CONTAINER) ---
+            # --- 3 PIE CHARTS (GENUS, CONTAINER, USERNAME) ---
             c1, c2, c3 = st.columns(3)
+            
+            # Chart 1: Genus
             with c1:
                 if col_genus in df_id.columns:
                     st.write("#### Genus")
@@ -503,24 +526,30 @@ def render_dashboard(selected_key):
                     st.plotly_chart(fig_g, use_container_width=True)
                 else: st.info("Genus data missing")
 
+            # Chart 2: Container
             with c2:
-                if col_species in df_id.columns:
-                    st.write("#### Species")
-                    spec_counts = df_id[col_species].value_counts().reset_index()
-                    spec_counts.columns = ['Species', 'Count']
-                    fig_s = px.pie(spec_counts, values='Count', names='Species', hole=0.4)
-                    st.plotly_chart(fig_s, use_container_width=True)
-                else: st.info("Species data missing")
-
-            with c3:
                 if col_container in df_id.columns:
                     st.write("#### Container")
+                    # Filter out empties
                     cont_data = df_id[df_id[col_container].notna() & (df_id[col_container] != "")]
                     cont_counts = cont_data[col_container].value_counts().reset_index()
                     cont_counts.columns = ['Container', 'Count']
                     fig_c = px.pie(cont_counts, values='Count', names='Container', hole=0.4)
                     st.plotly_chart(fig_c, use_container_width=True)
                 else: st.info("Container data missing")
+
+            # Chart 3: Submitted By (Username)
+            with c3:
+                if col_submitted in df_id.columns:
+                    st.write("#### Submitted By")
+                    user_counts = df_id[col_submitted].value_counts().reset_index()
+                    user_counts.columns = ['User', 'Count']
+                    # Use Map if you want real names, else raw username
+                    # user_counts['User'] = user_counts['User'].map(STAFF_NAMES).fillna(user_counts['User'])
+                    fig_u = px.pie(user_counts, values='Count', names='User', hole=0.4)
+                    st.plotly_chart(fig_u, use_container_width=True)
+                else: st.info("User data missing")
+
         else:
             st.info("No identification data available.")
 
@@ -541,32 +570,16 @@ def render_dashboard(selected_key):
             total_searched = staff_group['wet_cont_calc'].sum()
             staff_perf['Container Index'] = (staff_perf['Positive Containers'] / total_searched.replace(0, 1) * 100).round(2)
             
-            # --- FIXED 2: Larvae ID Count Logic in Staff Report ---
-            try:
-                with st.spinner("Syncing Larvae ID Data..."):
-                    df_id_sync = load_kobo_data(current_config['id_url'])
-                    
-                    # Find any column that looks like 'username'
-                    id_col_map = {c.lower(): c for c in df_id_sync.columns}
-                    # Common names for username in Kobo
-                    possible_user_cols = ['username', 'user_name', 'staff_name', 'data_collector']
-                    id_user_col = next((id_col_map.get(k) for k in possible_user_cols if id_col_map.get(k)), None)
-                    
-                    if not df_id_sync.empty and id_user_col:
-                        df_id_sync['clean_user'] = df_id_sync[id_user_col].astype(str).str.strip().str.lower()
-                        id_counts = df_id_sync.groupby('clean_user').size()
-                        temp_index = staff_perf.index.astype(str).str.strip().str.lower()
-                        staff_perf['Larvae ID Entries'] = temp_index.map(id_counts).fillna(0).astype(int)
-                    else:
-                        staff_perf['Larvae ID Entries'] = 0
-            except:
-                staff_perf['Larvae ID Entries'] = 0
+            # --- REMOVED LARVAE ID LOGIC AS REQUESTED ---
 
             staff_perf = staff_perf.reset_index()
             staff_perf.index += 1
             staff_perf.index.name = 'S.No'
             staff_perf = staff_perf.reset_index()
-            final_cols_staff = ['S.No', 'Name', 'Days Worked', 'Total Entries', 'Positive Found', 'Positive Containers', 'Container Index', 'Larvae ID Entries']
+            
+            # UPDATED COLUMNS: Removed 'Larvae ID Entries'
+            final_cols_staff = ['S.No', 'Name', 'Days Worked', 'Total Entries', 'Positive Found', 'Positive Containers', 'Container Index']
+            
             staff_final = staff_perf[[c for c in final_cols_staff if c in staff_perf.columns]]
             st.dataframe(staff_final, use_container_width=True)
             st.download_button("Download Staff Excel", to_excel(staff_final), "Staff_Performance.xlsx")
