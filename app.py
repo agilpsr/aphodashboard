@@ -487,10 +487,7 @@ def render_dashboard(selected_key):
     
     # --- ROBUST CALCULATION (The Fix for Peri Map) ---
     col_pos_house_raw = find_column_by_keywords(df, ["how_many_wet_containers_were_found_positive", "among_the_wet", "positive_premises"])
-    
-    # FIX: Explicit check for the exact string user provided
     col_pos_cont_raw = find_column_by_keywords(df, ["Among_the_wet_containers_how_", "how_many_wet_containers_were_found_positive", "positive_containers"])
-    
     col_wet_cont_raw = find_column_by_keywords(df, ["wet_containers", "wet container", "wet_containers_inspected"])
     col_dry_cont_raw = find_column_by_keywords(df, ["dry_container", "dry container"])
 
@@ -526,10 +523,12 @@ def render_dashboard(selected_key):
     col_premises = "Premises" if "Premises" in df.columns else col_map_lower.get('premises')
     
     # Attempt to find GPS columns robustly
-    col_lat = next((c for c in df.columns if '_location_latitude' in c.lower()), None)
+    col_lat = next((c for c in df.columns if '_Location_latitude' in c), None)
+    if not col_lat: col_lat = next((c for c in df.columns if 'location' in c.lower() and 'latitude' in c.lower()), None)
     if not col_lat: col_lat = next((c for c in df.columns if 'latitude' in c.lower()), None)
 
-    col_lon = next((c for c in df.columns if '_location_longitude' in c.lower()), None)
+    col_lon = next((c for c in df.columns if '_Location_longitude' in c), None)
+    if not col_lon: col_lon = next((c for c in df.columns if 'location' in c.lower() and 'longitude' in c.lower()), None)
     if not col_lon: col_lon = next((c for c in df.columns if 'longitude' in c.lower()), None)
     
     date_col = "Date" if "Date" in df.columns else col_map_lower.get('date')
@@ -547,11 +546,6 @@ def render_dashboard(selected_key):
         mask = (df_filtered[date_col].dt.date >= start_date) & (df_filtered[date_col].dt.date <= end_date)
         df_filtered = df_filtered.loc[mask]
         
-    # --- DEBUGGING FOR PERI AIRPORT COLUMNS (Can Remove Later) ---
-    if selected_key == 'peri':
-        with st.expander("🛠️ Debug: View Peri Data Columns"):
-            st.write(df.columns.tolist())
-            
     # --- FLIGHTS SCREENING SUMMARY ---
     if selected_key == 'flights':
         clean_cols = {c.strip().lower(): c for c in df.columns}
@@ -710,31 +704,35 @@ def render_dashboard(selected_key):
         if col_lat in df_for_graphs.columns and col_lon in df_for_graphs.columns:
             map_df = df_for_graphs.dropna(subset=[col_lat, col_lon]).copy()
             if not map_df.empty:
-                # --- FIX: Dynamic column selection for tooltips ---
-                # Peri wants columns 7,8,9,10,14 which usually are Zone, Street, House No, etc.
-                # Since column indices shift, we find them by name mostly.
-                
-                # Try to find House Number
-                col_house = next((c for c in df_filtered.columns if 'house' in c.lower() and 'number' in c.lower()), None)
-                if not col_house: col_house = next((c for c in df_filtered.columns if 'door' in c.lower() and 'number' in c.lower()), None)
-                
-                # Try to find Street Name
-                col_street_map = col_street if col_street else next((c for c in df_filtered.columns if 'street' in c.lower()), None)
-
                 m = folium.Map(location=[map_df[col_lat].mean(), map_df[col_lon].mean()], zoom_start=14)
                 for _, row in map_df.iterrows():
                     color = '#00ff00' if row['pos_house_calc'] == 0 else '#ff0000'
                     
                     if selected_key == 'intra':
-                        # Intra: Premises only, removed tooltip
-                        pass
+                        tooltip_html = f"<b>Premises:</b> {row.get(col_premises, 'N/A')}<br><b>Pos Containers:</b> {row.get('pos_cont_calc', 0)}"
                     else:
-                        # Peri-specific robust tooltip - removed for stability on request
-                        pass
-                    
-                    # Tooltips removed per latest request to keep map simple and functional
+                        # PERI SPECIFIC: Explicitly using requested column logic
+                        # Col 7: Zone (index 6 approx in raw, but we used named cols)
+                        # Col 8: Subzone, Col 9: Street, Col 10: House, Col 14: Pos Cont
+                        
+                        # We use the robustly found column names
+                        val_zone = row.get('zone', 'N/A')
+                        val_subzone = row.get('subzone', 'N/A')
+                        val_street = row.get('streetname', 'N/A')
+                        val_house = row.get('House_number_Buildin_ure_for_the_location', 'N/A')
+                        val_pos = row.get('Among_the_wet_containers_how_', 0)
+                        
+                        tooltip_html = f"""
+                        <b>Zone:</b> {val_zone}<br>
+                        <b>Subzone:</b> {val_subzone}<br>
+                        <b>Street:</b> {val_street}<br>
+                        <b>House No:</b> {val_house}<br>
+                        <b>Pos Containers:</b> {val_pos}
+                        """
+
                     folium.CircleMarker(
-                        [row[col_lat], row[col_lon]], radius=7, color=color, fill=True, fill_color=color
+                        [row[col_lat], row[col_lon]], radius=7, color=color, fill=True, fill_color=color,
+                        tooltip=tooltip_html 
                     ).add_to(m)
                 
                 st_folium(m, height=700, use_container_width=True, key=f"main_map_{selected_key}")
