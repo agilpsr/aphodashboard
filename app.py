@@ -378,6 +378,7 @@ def render_dashboard(selected_key):
         total_days = df_filtered[date_col].dt.date.nunique() if date_col else 'N/A'
         summary_data.append(["Total Days of Screening", total_days])
         
+        # Subsequent Rows: Sum of Other Variables
         numeric_df = df_filtered.select_dtypes(include=['number']).fillna(0)
         exclude_cols = ['_index', 'latitude', 'longitude', 'accuracy', '_id', 'instanceid', 'start', 'end'] 
         
@@ -727,13 +728,14 @@ def render_dashboard(selected_key):
 
 # --- HOME PAGE LOGIC (MAIN APP ROUTER) ---
 def render_home_page():
-    # --- Clean Background CSS (No image, no opacity) ---
+    # --- CSS: REMOVE BACKGROUND IMAGE ---
     st.markdown("""
         <style>
         .stApp {
             background-image: none !important;
             background-color: white !important;
         }
+        /* Dashboard content now rests on the clean background */
         .main .block-container { 
             background-color: transparent !important; 
             border-radius: 0px !important;
@@ -742,43 +744,46 @@ def render_home_page():
         </style>
     """, unsafe_allow_html=True)
     
-    st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>AIRPORT HEALTH ORGANISATION</h1>", unsafe_allow_html=True)
-    st.markdown("<h3 style='text-align: center; color: #1E3A8A;'>TIRUCHIRAPPALLI INTERNATIONAL AIRPORT</h3>", unsafe_allow_html=True)
-    st.divider()
+    is_authenticated = True
     
-    # 1. Check if a page is selected
-    if st.session_state.get('page') not in ['peri', 'intra', 'flights']:
+    if is_authenticated:
+        st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>AIRPORT HEALTH ORGANISATION</h1>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align: center; color: #1E3A8A;'>TIRUCHIRAPPALLI INTERNATIONAL AIRPORT</h3>", unsafe_allow_html=True)
         
-        # 2. Render Navigation Buttons
-        st.header("Select Activity Section")
-        _, col_buttons, _ = st.columns([1, 2, 1])
+        st.divider()
         
-        with col_buttons:
-            # Use buttons to set the page state and trigger rerun
-            if st.button("🦟 Outside Field Activities (Peri)", use_container_width=True, type="primary"):
-                st.session_state['page'] = 'peri'
-                st.rerun()
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("✈️ Inside Field Activities (Intra)", use_container_width=True, type="primary"):
-                st.session_state['page'] = 'intra'
-                st.rerun()
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("✈️ International Flights Screening", use_container_width=True, type="primary"):
-                st.session_state['page'] = 'flights'
+        # 1. Check if a page is selected
+        if st.session_state.get('page') not in ['peri', 'intra', 'flights']:
+            
+            # 2. Render Navigation Buttons
+            st.header("Select Activity Section")
+            _, col_buttons, _ = st.columns([1, 2, 1])
+            
+            with col_buttons:
+                # Use buttons to set the page state and trigger rerun
+                if st.button("🦟 Outside Field Activities (Peri)", use_container_width=True, type="primary"):
+                    st.session_state['page'] = 'peri'
+                    st.rerun()
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("✈️ Inside Field Activities (Intra)", use_container_width=True, type="primary"):
+                    st.session_state['page'] = 'intra'
+                    st.rerun()
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("✈️ International Flights Screening", use_container_width=True, type="primary"):
+                    st.session_state['page'] = 'flights'
+                    st.rerun()
+                    
+        else:
+            # 3. Render the specific dashboard
+            # Add a "Back to Home" button to the sidebar
+            if st.sidebar.button("🏠 Back to Home", key="back_to_home_button"):
+                st.session_state['page'] = 'home'
                 st.rerun()
                 
-    else:
-        # 3. Render the specific dashboard
-        # Add a "Back to Home" button to the sidebar
-        if st.sidebar.button("🏠 Back to Home", key="back_to_home_button"):
-            st.session_state['page'] = 'home'
-            st.rerun()
-            
-        render_dashboard(st.session_state['page'])
+            render_dashboard(st.session_state['page'])
 
 # --- APP ENTRY POINT (Page Router) ---
 if 'page' not in st.session_state:
     st.session_state['page'] = 'home'
 
-# This logic ensures only ONE of the navigation screens or dashboards is rendered.
 render_home_page()
