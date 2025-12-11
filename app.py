@@ -144,14 +144,11 @@ def show_add_report_dialog():
             report_year = st.number_input("Year", min_value=2020, max_value=2030, value=datetime.date.today().year)
             
         summary = st.text_area("Summary of Actions Taken", height=150, placeholder="Describe measures taken, areas covered, chemicals used, etc.")
-        
-        # FIX 1: Changed to accept PDF files
         uploaded_file = st.file_uploader("Upload Action Report (PDF)", type=['pdf'])
         
         submitted = st.form_submit_button("Submit Report")
         
         if submitted:
-            # Here you would typically save to a database or cloud storage.
             st.success(f"Report for {report_month} {report_year} submitted successfully!")
             st.rerun()
 
@@ -299,7 +296,6 @@ def render_dashboard(selected_key):
             if st.button("➕ Add New Report", use_container_width=True):
                 show_add_report_dialog()
         
-        # Placeholder Data 
         st.info("No reports have been uploaded yet.")
         st.stop()
     # -----------------------------------------------
@@ -531,10 +527,8 @@ def render_dashboard(selected_key):
         
         if "🏢 Premises Stats" in current_tab_map:
             with graph_tabs[current_tab_map['🏢 Premises Stats']]:
-                # --- FIX 2: Added requested Intra Premises Graphs ---
                 st.subheader("Premises Level Analysis")
                 if col_premises in df_for_graphs.columns:
-                    # Reuse the standard chart renderer for Premises, passing the correct column
                     render_standard_charts(col_premises, "Premise", "🏢 Premises Stats")
                 else:
                     st.warning("Premises data not available for graphing.")
@@ -554,7 +548,6 @@ def render_dashboard(selected_key):
         with st.expander("🔬 Larvae Identification Data (Click to Expand)", expanded=False):
             df_id = load_kobo_data(current_config['id_url'])
             if not df_id.empty:
-                # 1. Define Clean Targets
                 COL_GENUS = "Select the Genus:".strip()
                 COL_SPECIES = "Select the Species:".strip()
                 COL_CONTAINER_LABEL = "Type of container in which the sample was collected from".strip() 
