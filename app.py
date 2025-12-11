@@ -293,6 +293,10 @@ def render_dashboard(selected_key):
             st.warning(f"File '{pdf_file_name}' not found. Ensure it is uploaded to the root directory.")
     # --------------------------
 
+    current_config = SECTION_CONFIG[selected_key] # This line was the root of the KeyError if it somehow disappeared
+    
+    st.title(current_config['title'])
+
     with st.spinner('Fetching Surveillance data...'):
         df = load_kobo_data(current_config['surv_url'])
 
@@ -400,7 +404,6 @@ def render_dashboard(selected_key):
             active_tab_labels.extend(["🏘️ Subzone Stats", "🛣️ Street Stats"])
         elif selected_key == 'intra':
             active_tab_labels.append("🏢 Premises Stats")
-        # 'flights' uses only Trend and Zone Stats
             
         graph_tabs = st.tabs(active_tab_labels)
         current_tab_map = {label: i for i, label in enumerate(active_tab_labels)}
@@ -572,7 +575,7 @@ def render_dashboard(selected_key):
                         cont_counts.columns = ['Container', 'Count']
                         fig_c = px.pie(cont_counts, values='Count', names='Container', hole=0.4)
                         st.plotly_chart(fig_c, use_container_width=True)
-                    else: st.warning(f"Container data missing. Could not find column: '{COL_CONTAINER_LABEL}' or '{FALLBACK_KEY}'")
+                    else: st.warning(f"Container data missing.")
 
                 with c3:
                     if col_submitted:
