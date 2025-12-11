@@ -224,7 +224,7 @@ def generate_narrative_summary(df, selected_key, date_col, col_street, col_subzo
     loc_col = col_subzone if selected_key == 'peri' else col_premises
     if loc_col and loc_col in df_curr.columns:
         cont_stats = df_curr.groupby(loc_col)['pos_cont_calc'].sum().sort_values(ascending=False)
-        high_cont = cont_stats[cont_cont_calc'] > 0].head(3)
+        high_cont = cont_stats[cont_stats > 0].head(3)
         if not high_cont.empty:
             c_list = ", ".join([f"**{idx}** ({int(val)} containers)" for idx, val in high_cont.items()])
             narrative.append(f"**🪣 High Positive Containers:** Found in {c_list}.")
