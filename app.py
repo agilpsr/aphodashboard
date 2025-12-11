@@ -36,8 +36,9 @@ SECTION_CONFIG = {
         'id_url': 'https://kf.kobotoolbox.org/api/v2/assets/anN9HTYvmLRTorb7ojXs5A/export-settings/esLiqyb8KpPfeMX4ZnSoXSm/data.csv'
     },
     'flights': {
-        'title': 'International Flights Screened (ID Data Placeholder)',
-        'surv_url': 'https://kf.kobotoolbox.org/api/v2/assets/anN9HTYvmLRTorb7ojXs5A/export-settings/esLiqyb8KpPfeMX4ZnSoXSm/data.csv',
+        'title': 'International Flights Screened',
+        # --- FIX 1: Updated URL for International Flights Screened Data ---
+        'surv_url': 'https://kf.kobotoolbox.org/api/v2/assets/aHdVBAGwFvJwpTaATAZN8v/export-settings/esFbR4cbEQXToCUwLfFGbV4/data.csv',
         'id_url': None
     }
 }
@@ -55,7 +56,7 @@ def load_kobo_data(url):
         if "KOBO_TOKEN" in st.secrets:
             token = st.secrets["KOBO_TOKEN"]
         else:
-            token = "48554147c1847ddfe4c1c987a54b4196a03c1d9c"
+            token = "48554147c1c987a54b4196a03c1d9c"
         headers = {"Authorization": f"Token {token}"}
         response = requests.get(url, headers=headers)
         response.raise_for_status()
@@ -250,9 +251,10 @@ def generate_narrative_summary(df, selected_key, date_col, col_street, col_subzo
     return "\n\n".join(narrative)
 
 # --- PASSWORD FUNCTION ---
+# NOTE: This function remains as a structural placeholder but is not called in the entry point.
 def check_password_on_home():
     def password_entered():
-        # This function is not called in the current execution flow but kept for structure
+        # FIX: Added defensive check to prevent KeyError
         if "password" in st.session_state and st.session_state["password"] == "Aphotrz@2025":
             st.session_state["password_correct"] = True
             del st.session_state["password"]
@@ -268,7 +270,18 @@ def check_password_on_home():
 
 # --- MAIN DASHBOARD RENDERER ---
 def render_dashboard(selected_key):
-    st.markdown("""<style>.block-container { margin-top: 2rem !important; padding-top: 1rem !important; }</style>""", unsafe_allow_html=True)
+    # This style block ensures the dashboard content itself gets the opaque background
+    st.markdown("""
+        <style>
+            /* Ensures wide layout uses maximum space */
+            .main .block-container { 
+                background-color: rgba(255, 255, 255, 0.90); 
+                padding: 2rem; 
+                border-radius: 10px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            }
+        </style>
+    """, unsafe_allow_html=True)
 
     # --- ZONING MAP BUTTON ---
     if selected_key == 'peri':
@@ -665,6 +678,7 @@ def render_dashboard(selected_key):
 
 # --- HOME PAGE LOGIC ---
 def render_home_page():
+    # --- CSS for Background (No max-width restriction applied here) ---
     try:
         bin_str = get_base64_of_bin_file("logo.png")
         page_bg_img = f"""
@@ -676,7 +690,11 @@ def render_home_page():
             background-repeat: no-repeat;
             background-attachment: fixed;
         }}
-        /* REMOVED .block-container MAX-WIDTH RESTRICTION HERE TO MAXIMIZE DASHBOARD WIDTH */
+        /* Dashboard content is opaque for readability */
+        .main .block-container {{ 
+            background-color: rgba(255, 255, 255, 0.90); 
+            border-radius: 10px;
+        }}
         </style>
         """
         st.markdown(page_bg_img, unsafe_allow_html=True)
@@ -693,11 +711,11 @@ def render_home_page():
         st.divider()
         
         # --- NEW MAIN DASHBOARD ROUTER ---
-        # Note: Tabs are rendered simultaneously, hence the need for unique keys in render_dashboard
         main_tabs = st.tabs(["🦟 Outside Field (Peri)", "✈️ Inside Field (Intra)", "✈️ International Flights"])
         
-        # The sidebar will contain controls for the currently active tab
-        st.sidebar.button("🏠 Back to Home", key="home_sidebar_button")
+        # We don't need the 'Back to Home' button since this is the main page now.
+        # But we keep the sidebar structure alive for filters.
+        # st.sidebar.button("🏠 Back to Home", key="home_sidebar_button")
         
         with main_tabs[0]:
             render_dashboard('peri')
@@ -710,5 +728,4 @@ def render_home_page():
 if 'page' not in st.session_state:
     st.session_state['page'] = 'home'
 
-# Since authentication is bypassed, we simply call render_home_page to render the tabs.
 render_home_page()
