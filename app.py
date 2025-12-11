@@ -252,7 +252,6 @@ def generate_narrative_summary(df, selected_key, date_col, col_street, col_subzo
 # --- PASSWORD FUNCTION ---
 def check_password_on_home():
     def password_entered():
-        # This function is not called in the current execution flow but kept for structure
         if "password" in st.session_state and st.session_state["password"] == "Aphotrz@2025":
             st.session_state["password_correct"] = True
             del st.session_state["password"]
@@ -305,34 +304,82 @@ def render_dashboard(selected_key):
     if selected_key == 'flights':
         st.header("International Flights Screening Data Summary")
         
-        # 1. Initialize summary
-        summary_data = []
+        df_filtered = df.copy() # Use full data for flights unless filters are added later
+        df_filtered['Date'] = pd.to_datetime(df_filtered.get('Date', df_filtered.get('_submission_time'))).dt.date
         
-        # 2. Total Entries (Flights Screened)
-        total_entries = len(df)
-        summary_data.append(["Total International Flights Screened (Total Entries)", total_entries])
+        # 1. Setup Column Identifiers (Flexible Search)
+        col_map_lower = {c.lower(): c for c in df_filtered.columns}
+        date_col = next((col for col in df_filtered.columns if 'date' in col.lower()), None)
         
-        # 3. Sum of Other Variables
-        numeric_df = df.select_dtypes(include=['number']).fillna(0)
-        
-        # List of columns to explicitly skip from summation (Kobo metadata)
-        exclude_cols = ['_index', 'latitude', 'longitude', 'accuracy', '_id', 'instanceid', 'start', 'end'] 
-        
-        for col in numeric_df.columns:
-            # Check for columns starting with '_' or in the exclude list
-            if not col.startswith('_') and col.lower() not in exclude_cols:
-                col_sum = numeric_df[col].sum()
-                summary_data.append([col, f"{col_sum:,.0f}"])
+        # Try to find the Passengers Column (e.g., Number_of_passengers)
+        pax_col = next((col for col in df_filtered.columns if 'passenger' in col.lower() or 'pax' in col.lower() or 'number_of_passengers' in col.lower()), None)
+        staff1_col = "Flight_Duty_personnel"
+        staff2_col = "Deputy"
+
+        # --- A. SIMPLE SUMMARY TABLE (as requested in previous step) ---
+        with st.expander("Summary Statistics", expanded=True):
+            summary_data = []
+            total_entries = len(df_filtered)
+            summary_data.append(["Total International Flights Screened (Total Entries)", total_entries])
+            
+            numeric_df = df_filtered.select_dtypes(include=['number']).fillna(0)
+            exclude_cols = ['_index', 'latitude', 'longitude', 'accuracy', '_id', 'instanceid', 'start', 'end'] 
+            
+            for col in numeric_df.columns:
+                if not col.startswith('_') and col.lower() not in exclude_cols:
+                    col_sum = numeric_df[col].sum()
+                    summary_data.append([col, f"{col_sum:,.0f}"])
+                    
+            summary_df = pd.DataFrame(summary_data, columns=["Metric", "Value"])
+            st.table(summary_df)
+
+        # --- B. STAFF PERFORMANCE REPORT (New Request Logic) ---
+        with st.expander("👮 Staff Performance Report", expanded=True):
+            if not date_col or not pax_col or staff1_col not in df_filtered.columns or staff2_col not in df_filtered.columns:
+                st.warning(f"Required data columns not found for Staff Report. Missing: Date={date_col is None}, Pax={pax_col is None}, StaffCols=False.")
+            elif not df_filtered.empty:
                 
-        summary_df = pd.DataFrame(summary_data, columns=["Metric", "Value"])
-        
-        st.table(summary_df)
-        st.download_button(
-            "Download Raw Flights Data",
-            to_excel(df),
-            "Flights_Raw_Data.xlsx",
-            key="flights_raw_download"
-        )
+                # Stack/Unpivot data to attribute metrics to both staff members
+                staff_data = []
+                df_filtered[pax_col] = pd.to_numeric(df_filtered[pax_col], errors='coerce').fillna(0)
+                
+                for _, row in df_filtered.iterrows():
+                    pax_count = row[pax_col]
+                    date_val = row[date_col].date()
+                    
+                    # Staff 1
+                    staff_data.append({'Name': row[staff1_col], 'Date': date_val, 'Pax': pax_count})
+                    
+                    # Staff 2 (Deputy)
+                    deputy = row[staff2_col]
+                    if pd.notna(deputy):
+                        staff_data.append({'Name': deputy, 'Date': date_val, 'Pax': pax_count})
+                        
+                df_staff = pd.DataFrame(staff_data).dropna(subset=['Name']).reset_index(drop=True)
+                
+                # Aggregate Metrics
+                report = df_staff.groupby('Name').agg(
+                    Days_Worked=('Date', 'nunique'),
+                    Total_Passengers_Screened=('Pax', 'sum')
+                ).reset_index()
+                
+                # Apply human readable names
+                report['Name'] = report['Name'].map(lambda x: STAFF_NAMES.get(str(x).strip().lower(), x))
+                
+                report.index += 1
+                report.index.name = "S.No"
+                report = report.reset_index()
+                
+                st.dataframe(report, use_container_width=True)
+                st.download_button(
+                    "Download Staff Report (Excel)",
+                    to_excel(report),
+                    "Flights_Staff_Report.xlsx",
+                    key="flights_staff_report_download"
+                )
+            else:
+                st.info("No flight entries available in the filtered date range for staff analysis.")
+
         st.stop()
     # --- END FLIGHTS SCREENING SUMMARY ---
 
@@ -364,7 +411,6 @@ def render_dashboard(selected_key):
         df_filtered[date_col] = pd.to_datetime(df_filtered[date_col])
         min_date, max_date = df_filtered[date_col].min().date(), df_filtered[date_col].max().date()
         d1, d2 = st.sidebar.columns(2)
-        # --- FIX: Added unique keys to sidebar date inputs ---
         start_date = d1.date_input("Start", min_date, key=f"start_date_{selected_key}")
         end_date = d2.date_input("End", max_date, key=f"end_date_{selected_key}")
         mask = (df_filtered[date_col].dt.date >= start_date) & (df_filtered[date_col].dt.date <= end_date)
@@ -522,11 +568,7 @@ def render_dashboard(selected_key):
         with st.expander("🔬 Larvae Identification Data (Click to Expand)", expanded=False):
             df_id = load_kobo_data(current_config['id_url'])
             
-            # --- DEBUG EXPANDER ---
-            with st.expander("🛠️ Debug: View Data Headers"):
-                st.write("Here are the exact column names in your data:")
-                st.write(df_id.columns.tolist())
-            # ---------------------
+            # --- DEBUG EXPANDER (REMOVED) ---
 
             if not df_id.empty:
                 # 1. Define Clean Targets
@@ -650,7 +692,6 @@ def render_dashboard(selected_key):
             
             staff_final = staff_perf[[c for c in final_cols_staff if c in staff_perf.columns]]
             st.dataframe(staff_final, use_container_width=True)
-            # --- FIX: Added unique key to download button ---
             st.download_button("Download Staff Excel", to_excel(staff_final), "Staff_Performance.xlsx", key=f"staff_excel_download_{selected_key}")
         else: st.warning("Username column not found.")
 
@@ -665,7 +706,6 @@ def render_dashboard(selected_key):
                     df_rep_raw[col] = pd.to_numeric(df_rep_raw[raw_col], errors='coerce').fillna(0) if raw_col in df_rep_raw.columns else 0
                 df_rep_raw['dry_cont_calc'] = pd.to_numeric(df_rep_raw[col_dry_cont_raw], errors='coerce').fillna(0) if col_dry_cont_raw in df_rep_raw.columns else 0
                 df_rep_raw['Month_Year'] = df_rep_raw[date_col].dt.strftime('%Y-%m')
-                # --- FIX: Added unique key to selectbox ---
                 sel_mon = st.selectbox("Select Month:", sorted(df_rep_raw['Month_Year'].unique(), reverse=True), key=f"monthly_select_{selected_key}")
                 if sel_mon:
                     df_m = df_rep_raw[df_rep_raw['Month_Year'] == sel_mon].copy()
@@ -685,7 +725,6 @@ def render_dashboard(selected_key):
                 df_ft['Month_Str'] = df_ft[date_col].dt.strftime('%B %Y')
                 df_ft['Label'] = df_ft.apply(lambda x: f"First Half {x['Month_Str']}" if x[date_col].day <= 15 else f"Second Half {x['Month_Str']}", axis=1)
                 df_ft = df_ft.sort_values(by=date_col, ascending=False)
-                # --- FIX: Added unique key to selectbox ---
                 sel_ft = st.selectbox("Select Fortnight:", df_ft['Label'].unique(), key=f"fortnight_select_{selected_key}")
                 if sel_ft:
                     df_sft = df_ft[df_ft['Label'] == sel_ft].copy()
