@@ -90,7 +90,7 @@ def plot_metric_bar(data, x_col, y_col, title, color_col, range_max=None):
     if data.empty: return None
     r_max = range_max if range_max else (data[y_col].max() * 1.1 if data[y_col].max() > 0 else 20)
     fig = px.bar(data, x=x_col, y=y_col, title=title, text=y_col, color=color_col, 
-                 color_continuous_scale='RdYlGn_r', range_color=[0, 10]) 
+                 color_continuous_scale='RdYlGn_r', range_color=[0, 10]) # Green to Red
     fig.update_layout(
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
@@ -158,15 +158,6 @@ def get_pdf_bytes(filename):
             return f.read()
     except FileNotFoundError:
         return None
-
-# --- UTILS ---
-def find_column_by_keywords(df, keywords):
-    """Robustly finds a column name containing any of the keywords."""
-    for col in df.columns:
-        for kw in keywords:
-            if kw.lower() in col.lower():
-                return col
-    return None
 
 # --- GLOBAL REPORT FUNCTION ---
 def generate_report_df(df_source, date_col, col_username, selected_key, col_premises, col_subzone, col_street, current_config):
@@ -485,32 +476,6 @@ def render_dashboard(selected_key):
         st.info("No data found or error loading Kobo data.")
         return
     
-    # --- ROBUST CALCULATION (The Fix for Peri Map) ---
-    col_pos_house_raw = find_column_by_keywords(df, ["how_many_wet_containers_were_found_positive", "among_the_wet", "positive_premises"])
-    col_pos_cont_raw = find_column_by_keywords(df, ["how_many_wet_containers_were_found_positive", "positive_containers"])
-    col_wet_cont_raw = find_column_by_keywords(df, ["wet_containers", "wet container", "wet_containers_inspected"])
-    col_dry_cont_raw = find_column_by_keywords(df, ["dry_container", "dry container"])
-
-    if col_pos_house_raw:
-        df['pos_house_calc'] = pd.to_numeric(df[col_pos_house_raw], errors='coerce').fillna(0)
-    else:
-        df['pos_house_calc'] = 0
-
-    if col_pos_cont_raw:
-        df['pos_cont_calc'] = pd.to_numeric(df[col_pos_cont_raw], errors='coerce').fillna(0)
-    else:
-        df['pos_cont_calc'] = 0
-
-    if col_wet_cont_raw:
-        df['wet_cont_calc'] = pd.to_numeric(df[col_wet_cont_raw], errors='coerce').fillna(0)
-    else:
-        df['wet_cont_calc'] = 0
-
-    if col_dry_cont_raw:
-        df['dry_cont_calc'] = pd.to_numeric(df[col_dry_cont_raw], errors='coerce').fillna(0)
-    else:
-        df['dry_cont_calc'] = 0
-    
     # --- START FILTERING ---
     st.sidebar.markdown("### 🔍 Filters") 
     df_filtered = df.copy()
@@ -521,17 +486,12 @@ def render_dashboard(selected_key):
     col_street = col_map_lower.get('streetname')
     col_username = col_map_lower.get('username')
     col_premises = "Premises" if "Premises" in df.columns else col_map_lower.get('premises')
-    
-    # Attempt to find GPS columns robustly
-    # Priority: _Location_latitude (Peri) > Location_latitude > latitude
-    col_lat = next((c for c in df.columns if c == '_Location_latitude'), None)
-    if not col_lat: col_lat = next((c for c in df.columns if 'location' in c.lower() and 'latitude' in c.lower()), None)
-    if not col_lat: col_lat = next((c for c in df.columns if 'latitude' in c.lower()), None)
-
-    col_lon = next((c for c in df.columns if c == '_Location_longitude'), None)
-    if not col_lon: col_lon = next((c for c in df.columns if 'location' in c.lower() and 'longitude' in c.lower()), None)
-    if not col_lon: col_lon = next((c for c in df.columns if 'longitude' in c.lower()), None)
-    
+    col_pos_house_raw = "Among_the_wet_containers_how_"
+    col_pos_cont_raw = "Among_the_wet_containers_how_"
+    col_wet_cont_raw = "Number_of_wet_containers_found" if "Number_of_wet_containers_found" in df.columns else "Number_of_wet_containers_"
+    col_dry_cont_raw = "number_of_dry_contai_tentially_hold_water"
+    col_lat = "_Location_latitude"
+    col_lon = "_Location_longitude"
     date_col = "Date" if "Date" in df.columns else col_map_lower.get('date')
     if not date_col:
         for c in ['today', 'start', '_submission_time']:
@@ -547,6 +507,11 @@ def render_dashboard(selected_key):
         mask = (df_filtered[date_col].dt.date >= start_date) & (df_filtered[date_col].dt.date <= end_date)
         df_filtered = df_filtered.loc[mask]
         
+    # --- DEBUGGING FOR PERI AIRPORT COLUMNS ---
+    if selected_key == 'peri':
+        with st.expander("🛠️ Debug: View Peri Data Columns"):
+            st.write(df.columns.tolist())
+            
     # --- FLIGHTS SCREENING SUMMARY ---
     if selected_key == 'flights':
         clean_cols = {c.strip().lower(): c for c in df.columns}
@@ -579,7 +544,7 @@ def render_dashboard(selected_key):
                 
         summary_df = pd.DataFrame(summary_data, columns=["Metric", "Value"])
         st.table(summary_df)
-        st.download_button("Download Raw Flights Data", to_excel(df_filtered), "Flights_Raw_Data.xlsx", key="flights_raw_download")
+        st.download_button("Download Raw Flights Data", to_excel(df_filtered), "Flights_Raw_Data_Filtered.xlsx", key="flights_raw_download")
         st.stop()
 
     # --- STANDARD DASHBOARD FILTERS ---
@@ -622,8 +587,8 @@ def render_dashboard(selected_key):
         else: df_for_graphs = df_filtered.copy()
     else:
         display_count = len(df_filtered)
-        # Recalculate based on filtered data
-        positive_count = (df_filtered['pos_house_calc'] > 0).sum()
+        df_filtered['is_positive_house'] = df_filtered['pos_house_calc'].apply(lambda x: 1 if x > 0 else 0)
+        positive_count = df_filtered['is_positive_house'].sum()
         if display_count > 0:
             hi_val = (positive_count / display_count) * 100
             ci_val = (df_filtered['pos_cont_calc'].sum() / df_filtered['wet_cont_calc'].sum() * 100) if df_filtered['wet_cont_calc'].sum() > 0 else 0
@@ -707,51 +672,32 @@ def render_dashboard(selected_key):
                     st.warning("Premises data not available for graphing.")
 
     with st.expander("🌍 Geo-Spatial Map", expanded=True):
+        # 1. Standard Map
         if col_lat in df_for_graphs.columns and col_lon in df_for_graphs.columns:
             map_df = df_for_graphs.dropna(subset=[col_lat, col_lon]).copy()
             if not map_df.empty:
+                # Get the column for House Number and Street dynamically
+                col_house = next((c for c in df_filtered.columns if 'house' in c.lower() and 'number' in c.lower()), None)
+                col_street_map = col_street if col_street else next((c for c in df_filtered.columns if 'street' in c.lower()), None)
+                
+                # --- UPDATE: Increased map height and width ---
                 m = folium.Map(location=[map_df[col_lat].mean(), map_df[col_lon].mean()], zoom_start=14)
                 for _, row in map_df.iterrows():
                     color = '#00ff00' if row['pos_house_calc'] == 0 else '#ff0000'
                     
-                    if selected_key == 'intra':
-                        tooltip_html = f"<b>Premises:</b> {row.get(col_premises, 'N/A')}<br><b>Pos Containers:</b> {row.get('pos_cont_calc', 0)}"
-                    else:
-                        # PERI SPECIFIC: Zone (7), Subzone (8), Street (9), House (10), Pos Cont (14)
-                        # Accessing by column name derived from data structure 
-                        # We use .iloc safely or dynamic search to get values
-                        
-                        try:
-                            # 7: Zone, 8: Subzone, 9: Street, 10: House, 14: Pos Container
-                            # Using dynamic column names is safer, but user asked for strict indexing logic logic if names fail
-                            # Here we prioritize the robust dynamic names found earlier
-                            
-                            val_zone = row.get(col_zone, 'N/A')
-                            val_subzone = row.get(col_subzone, 'N/A')
-                            val_street = row.get(col_street, 'N/A')
-                            
-                            # House number is tricky, find dynamically
-                            col_house = next((c for c in df_filtered.columns if 'house' in c.lower() and 'number' in c.lower()), None)
-                            if not col_house: col_house = next((c for c in df_filtered.columns if 'door' in c.lower() and 'number' in c.lower()), None)
-                            val_house = row.get(col_house, 'N/A')
-                            
-                            val_pos = row.get('pos_cont_calc', 0)
-                            
-                            tooltip_html = f"""
-                            <b>Zone:</b> {val_zone}<br>
-                            <b>Subzone:</b> {val_subzone}<br>
-                            <b>Street:</b> {val_street}<br>
-                            <b>House No:</b> {val_house}<br>
-                            <b>Pos Containers:</b> {val_pos}
-                            """
-                        except:
-                             tooltip_html = "Data Unavailable"
-
+                    # --- UPDATE: Tooltip construction ---
+                    tooltip_html = f"""
+                    <b>Street:</b> {row.get(col_street_map, 'N/A')}<br>
+                    <b>House No:</b> {row.get(col_house, 'N/A')}<br>
+                    <b>Pos Containers:</b> {row.get('pos_cont_calc', 0)}
+                    """
+                    
                     folium.CircleMarker(
                         [row[col_lat], row[col_lon]], radius=7, color=color, fill=True, fill_color=color,
                         tooltip=tooltip_html 
                     ).add_to(m)
                 
+                # Full width and increased height
                 st_folium(m, height=700, use_container_width=True, key=f"main_map_{selected_key}")
             else:
                  st.info("No GPS data found to render map.")
