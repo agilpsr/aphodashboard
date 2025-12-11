@@ -37,9 +37,8 @@ SECTION_CONFIG = {
     },
     'flights': {
         'title': 'International Flights Screened (ID Data Placeholder)',
-        # NOTE: Using the Intra ID URL as the surveillance data source for this section, as requested.
         'surv_url': 'https://kf.kobotoolbox.org/api/v2/assets/anN9HTYvmLRTorb7ojXs5A/export-settings/esLiqyb8KpPfeMX4ZnSoXSm/data.csv',
-        'id_url': None # No further ID data expected
+        'id_url': None
     }
 }
 
@@ -129,7 +128,6 @@ def get_pdf_bytes(filename):
 # --- GLOBAL REPORT FUNCTION ---
 def generate_report_df(df_source, date_col, col_username, selected_key, col_premises, col_subzone, col_street, current_config):
     with st.spinner("Fetching Identification Data..."):
-        # Flights data doesn't have ID data, so check if id_url exists
         if current_config.get('id_url'):
             df_id_rep = load_kobo_data(current_config['id_url'])
         else:
@@ -254,7 +252,8 @@ def generate_narrative_summary(df, selected_key, date_col, col_street, col_subzo
 # --- PASSWORD FUNCTION ---
 def check_password_on_home():
     def password_entered():
-        if st.session_state["password"] == "Aphotrz@2025":
+        # FIX: Added existence check to prevent KeyError
+        if "password" in st.session_state and st.session_state["password"] == "Aphotrz@2025":
             st.session_state["password_correct"] = True
             del st.session_state["password"]
         else:
@@ -271,19 +270,13 @@ def check_password_on_home():
 def render_dashboard(selected_key):
     st.markdown("""<style>.block-container { margin-top: 2rem !important; padding-top: 1rem !important; }</style>""", unsafe_allow_html=True)
 
-    # --- TOP LEVEL NAVIGATION (If required, or handled by caller) ---
-    # Since the caller handles the tabs, this section just renders the content for the given key.
-
-    current_config = SECTION_CONFIG[selected_key]
-    st.title(current_config['title'])
-
     # --- ZONING MAP BUTTON ---
     if selected_key == 'peri':
         pdf_file_name = "zoning.pdf"
     elif selected_key == 'intra':
         pdf_file_name = "zoninginside.pdf"
     else:
-        pdf_file_name = None # No map for flights data
+        pdf_file_name = None 
         
     if pdf_file_name:
         pdf_bytes = get_pdf_bytes(pdf_file_name)
@@ -353,8 +346,6 @@ def render_dashboard(selected_key):
     df_filtered['dry_cont_calc'] = pd.to_numeric(df_filtered[col_dry_cont_raw], errors='coerce').fillna(0) if col_dry_cont_raw in df_filtered.columns else 0
 
     display_count, positive_count, hi_val, ci_val, bi_val = 0, 0, 0, 0, 0
-    
-    # Intra logic must define df_for_graphs (grouped by premise)
     if selected_key == 'intra':
         if col_premises and date_col:
             df_filtered['unique_premise_id'] = df_filtered[date_col].dt.date.astype(str) + "_" + df_filtered[col_premises].apply(normalize_string)
@@ -374,12 +365,8 @@ def render_dashboard(selected_key):
             df_for_graphs = df_grouped.copy()
             df_for_graphs['is_positive_premise'] = (df_grouped['pos_cont_calc'] > 0).astype(int)
             display_count, positive_count = total_unique_premises, positive_premises_count
-        else: 
-            # Fallback for Intra (use raw rows for metrics if grouping cols missing)
-            df_for_graphs = df_filtered.copy()
-            st.warning("Intra premises grouping skipped: Premises or Date column missing/not found in data.")
+        else: df_for_graphs = df_filtered.copy()
     else:
-        # Peri/Flights Logic (use raw entries)
         display_count = len(df_filtered)
         df_filtered['is_positive_house'] = df_filtered['pos_house_calc'].apply(lambda x: 1 if x > 0 else 0)
         positive_count = df_filtered['is_positive_house'].sum()
@@ -413,6 +400,7 @@ def render_dashboard(selected_key):
             active_tab_labels.extend(["🏘️ Subzone Stats", "🛣️ Street Stats"])
         elif selected_key == 'intra':
             active_tab_labels.append("🏢 Premises Stats")
+        # 'flights' uses only Trend and Zone Stats
             
         graph_tabs = st.tabs(active_tab_labels)
         current_tab_map = {label: i for i, label in enumerate(active_tab_labels)}
@@ -474,7 +462,7 @@ def render_dashboard(selected_key):
                     fig_daily = px.bar(daily_prem, x='Date', y='Unique Premises', title="Total Unique Premises Checked per Day")
                     st.plotly_chart(fig_daily, use_container_width=True)
                 else:
-                    st.warning("Daily Premises/Grouping data not available for this tab.")
+                    st.warning("Daily data or Unique Premises ID missing for this graph.")
                 
                 if col_premises in df_for_graphs.columns:
                     st.divider()
@@ -492,31 +480,37 @@ def render_dashboard(selected_key):
                 st_folium(m, height=400)
 
     # --- LARVAE ID TABLE (COLLAPSIBLE) ---
-    # Only render this section if ID data URL is present in the config
     if current_config.get('id_url'):
         with st.expander("🔬 Larvae Identification Data (Click to Expand)", expanded=False):
             df_id = load_kobo_data(current_config['id_url'])
             
-            # 1. Define Clean Targets
-            COL_GENUS = "Select the Genus:".strip()
-            COL_SPECIES = "Select the Species:".strip()
-            COL_CONTAINER_LABEL = "Type of container in which the sample was collected from".strip() # Target (Cleaned)
-            COL_SUBMITTED = "_submitted_by".strip()
-
-            # 2. Find Actual Column Names (Robust Search - strips all spaces from headers)
-            clean_to_orig_map = {col.strip(): col for col in df_id.columns}
-            col_genus = clean_to_orig_map.get(COL_GENUS)
-            col_species = clean_to_orig_map.get(COL_SPECIES)
-            col_container = clean_to_orig_map.get(COL_CONTAINER_LABEL)
-            col_submitted = clean_to_orig_map.get(COL_SUBMITTED)
-            
-            # FALLBACK CHECK for common variations in Peri data
-            if not col_container:
-                FALLBACK_KEY = "Type of container the sample was collected from".strip() 
-                col_container = clean_to_orig_map.get(FALLBACK_KEY)
-            # --------------------------------------
+            # --- DEBUG EXPANDER ---
+            with st.expander("🛠️ Debug: View Data Headers"):
+                st.write("Here are the exact column names in your data:")
+                st.write(df_id.columns.tolist())
+            # ---------------------
 
             if not df_id.empty:
+                # 1. Define Clean Targets
+                COL_GENUS = "Select the Genus:".strip()
+                COL_SPECIES = "Select the Species:".strip()
+                COL_CONTAINER_LABEL = "Type of container in which the sample was collected from".strip() # Target (Cleaned)
+                COL_SUBMITTED = "_submitted_by".strip()
+
+                # 2. Find Actual Column Names (Robust Search - strips all spaces from headers)
+                clean_to_orig_map = {col.strip(): col for col in df_id.columns}
+
+                col_genus = clean_to_orig_map.get(COL_GENUS)
+                col_species = clean_to_orig_map.get(COL_SPECIES)
+                col_container = clean_to_orig_map.get(COL_CONTAINER_LABEL)
+                col_submitted = clean_to_orig_map.get(COL_SUBMITTED)
+                
+                # FALLBACK CHECK for common variations in Peri data
+                if not col_container:
+                    FALLBACK_KEY = "Type of container the sample was collected from".strip() # Shorter label?
+                    col_container = clean_to_orig_map.get(FALLBACK_KEY)
+                # --------------------------------------
+
                 col_map_id = {c.lower(): c for c in df_id.columns}
                 date_col_id = next((c for c in df_id.columns if c in ['Date', 'today', 'date']), None)
                 addr_cols = ['address', 'location', 'premise', 'premises', 'streetname']
@@ -578,7 +572,7 @@ def render_dashboard(selected_key):
                         cont_counts.columns = ['Container', 'Count']
                         fig_c = px.pie(cont_counts, values='Count', names='Container', hole=0.4)
                         st.plotly_chart(fig_c, use_container_width=True)
-                    else: st.warning(f"Container data missing.")
+                    else: st.warning(f"Container data missing. Could not find column: '{COL_CONTAINER_LABEL}' or '{FALLBACK_KEY}'")
 
                 with c3:
                     if col_submitted:
@@ -715,10 +709,7 @@ if 'page' not in st.session_state:
 if st.session_state['page'] == 'home':
     render_home_page()
 else:
-    # Since the main entry point is now the tabbed home page, 
-    # we don't need the old complex state routing (peri/intra/flights), 
-    # but we keep the initial authentication flow.
     if st.session_state.get("password_correct", False):
-        render_home_page() # Redirects to the main tabbed interface
+        render_home_page()
     else:
         render_home_page()
