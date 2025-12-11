@@ -310,19 +310,19 @@ def render_dashboard(selected_key):
         
         # 2. Total Entries (Flights Screened)
         total_entries = len(df)
-        summary_data.append(["Total International Flights Screened", total_entries])
+        summary_data.append(["Total International Flights Screened (Total Entries)", total_entries])
         
         # 3. Sum of Other Variables
         numeric_df = df.select_dtypes(include=['number']).fillna(0)
         
         # List of columns to explicitly skip from summation (Kobo metadata)
-        exclude_cols = ['_index', 'latitude', 'longitude', 'accuracy', '_id', 'instanceid'] 
+        exclude_cols = ['_index', 'latitude', 'longitude', 'accuracy', '_id', 'instanceid', 'start', 'end'] 
         
         for col in numeric_df.columns:
             # Check for columns starting with '_' or in the exclude list
             if not col.startswith('_') and col.lower() not in exclude_cols:
                 col_sum = numeric_df[col].sum()
-                summary_data.append([col, f"{col_sum:,.0f}"]) # Use 0 decimal for sums unless otherwise specified
+                summary_data.append([col, f"{col_sum:,.0f}"])
                 
         summary_df = pd.DataFrame(summary_data, columns=["Metric", "Value"])
         
@@ -364,6 +364,7 @@ def render_dashboard(selected_key):
         df_filtered[date_col] = pd.to_datetime(df_filtered[date_col])
         min_date, max_date = df_filtered[date_col].min().date(), df_filtered[date_col].max().date()
         d1, d2 = st.sidebar.columns(2)
+        # --- FIX: Added unique keys to sidebar date inputs ---
         start_date = d1.date_input("Start", min_date, key=f"start_date_{selected_key}")
         end_date = d2.date_input("End", max_date, key=f"end_date_{selected_key}")
         mask = (df_filtered[date_col].dt.date >= start_date) & (df_filtered[date_col].dt.date <= end_date)
