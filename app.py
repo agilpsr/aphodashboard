@@ -686,7 +686,8 @@ def render_home_page():
     except:
         st.warning("Background image 'logo.png' not found on GitHub.")
 
-    is_authenticated = check_password_on_home()
+    # AUTHENTICATION BYPASSED: is_authenticated is assumed True for rendering the dashboard
+    is_authenticated = True
     
     if is_authenticated:
         st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>AIRPORT HEALTH ORGANISATION</h1>", unsafe_allow_html=True)
@@ -708,10 +709,5 @@ def render_home_page():
 if 'page' not in st.session_state:
     st.session_state['page'] = 'home'
 
-if st.session_state['page'] == 'home':
-    render_home_page()
-else:
-    if st.session_state.get("password_correct", False):
-        render_home_page()
-    else:
-        render_home_page()
+# Since authentication is bypassed, we simply call render_home_page to render the tabs.
+render_home_page()
