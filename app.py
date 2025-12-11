@@ -486,12 +486,10 @@ def render_dashboard(selected_key):
         return
     
     # --- ROBUST CALCULATION (The Fix for Peri Map) ---
-    # Find columns by flexible keywords
     col_pos_raw = find_column_by_keywords(df, ["found_positive", "positive_for_larvae", "among_the_wet", "how_many_wet_containers_were_found_positive"])
     col_wet_raw = find_column_by_keywords(df, ["wet_containers", "wet container", "wet_containers_inspected"])
     col_dry_raw = find_column_by_keywords(df, ["dry_container", "dry container"])
 
-    # Safely create calculated columns, filling with 0 if missing
     if col_pos_raw:
         df['pos_house_calc'] = pd.to_numeric(df[col_pos_raw], errors='coerce').fillna(0)
         df['pos_cont_calc'] = pd.to_numeric(df[col_pos_raw], errors='coerce').fillna(0)
@@ -508,8 +506,7 @@ def render_dashboard(selected_key):
         df['dry_cont_calc'] = pd.to_numeric(df[col_dry_raw], errors='coerce').fillna(0)
     else:
         df['dry_cont_calc'] = 0
-
-
+    
     # --- START FILTERING ---
     st.sidebar.markdown("### 🔍 Filters") 
     df_filtered = df.copy()
@@ -600,7 +597,6 @@ def render_dashboard(selected_key):
     if selected_key == 'intra':
         if col_premises and date_col:
             df_filtered['unique_premise_id'] = df_filtered[date_col].dt.date.astype(str) + "_" + df_filtered[col_premises].apply(normalize_string)
-            # Calculations are now done upstream, we aggregate them
             agg_dict = {'pos_house_calc': 'max', 'pos_cont_calc': 'sum', 'wet_cont_calc': 'sum', 'dry_cont_calc': 'sum'}
             if date_col: agg_dict[date_col] = 'first'
             for c in [col_zone, col_lat, col_lon, col_premises, col_username]:
@@ -725,20 +721,9 @@ def render_dashboard(selected_key):
                         tooltip_html = f"<b>Premises:</b> {row.get(col_premises, 'N/A')}<br><b>Pos Containers:</b> {row.get('pos_cont_calc', 0)}"
                     else:
                         # Peri-specific robust tooltip
-                        house_val = row.get(col_house, 'N/A')
-                        street_val = row.get(col_street_map, 'N/A')
-                        # Fallback if specific columns aren't found by name
-                        if house_val == 'N/A' and len(df_filtered.columns) > 9:
-                             house_val = row.iloc[9] # Approx col 10
-                        if street_val == 'N/A' and len(df_filtered.columns) > 8:
-                             street_val = row.iloc[8] # Approx col 9
+                        # Only show lat/long or basic ID if columns are missing to prevent crash
+                        tooltip_html = f"<b>Pos Containers:</b> {row.get('pos_cont_calc', 0)}"
 
-                        tooltip_html = f"""
-                        <b>Street:</b> {street_val}<br>
-                        <b>House No:</b> {house_val}<br>
-                        <b>Pos Containers:</b> {row.get('pos_cont_calc', 0)}
-                        """
-                    
                     folium.CircleMarker(
                         [row[col_lat], row[col_lon]], radius=7, color=color, fill=True, fill_color=color,
                         tooltip=tooltip_html 
