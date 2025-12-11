@@ -337,7 +337,7 @@ def render_dashboard(selected_key):
             ci_val = (df_grouped['pos_cont_calc'].sum() / df_grouped['wet_cont_calc'].sum() * 100) if df_grouped['wet_cont_calc'].sum() > 0 else 0
             bi_val = (df_grouped['pos_cont_calc'].sum() / total_unique_premises * 100) if total_unique_premises > 0 else 0
             df_for_graphs = df_grouped.copy()
-            df_for_graphs['is_positive_premise'] = (df_grouped['pos_house_calc'] > 0).astype(int)
+            df_for_graphs['is_positive_premise'] = (df_grouped['pos_cont_calc'] > 0).astype(int)
             display_count, positive_count = total_unique_premises, positive_premises_count
         else: df_for_graphs = df_filtered.copy()
     else:
@@ -370,7 +370,6 @@ def render_dashboard(selected_key):
         
         # --- DYNAMIC TAB DEFINITION ---
         active_tab_labels = ["📈 Trend Analysis", "🌍 Zone Stats"]
-        
         if selected_key == 'peri':
             active_tab_labels.extend(["🏘️ Subzone Stats", "🛣️ Street Stats"])
         elif selected_key == 'intra':
@@ -395,7 +394,6 @@ def render_dashboard(selected_key):
                 st.info("Insufficient data for Trend Analysis.")
 
         def render_standard_charts(group_col, title_prefix, tab_label):
-            # Check if this content belongs to the currently visible tab
             if tab_label not in current_tab_map: return
             
             with graph_tabs[current_tab_map[tab_label]]:
@@ -428,7 +426,6 @@ def render_dashboard(selected_key):
         render_standard_charts(col_subzone, "Subzone", "🏘️ Subzone Stats")
         render_standard_charts(col_street, "Street", "🛣️ Street Stats")
         
-        # Premises/Daily Activity Tab
         if "🏢 Premises Stats" in current_tab_map:
             with graph_tabs[current_tab_map['🏢 Premises Stats']]:
                 st.subheader("Daily Activity Analysis")
@@ -442,7 +439,7 @@ def render_dashboard(selected_key):
                 
                 if col_premises in df_for_graphs.columns:
                     st.divider()
-                    render_standard_charts(col_premises, "Premise", "Premise Stats Placeholder") # Placeholder to render breakdown
+                    render_standard_charts(col_premises, "Premise", "Premise Stats Placeholder")
 
     # --- MAP (COLLAPSIBLE) ---
     with st.expander("🌍 Geo-Spatial Map (Click to Expand)", expanded=False):
@@ -459,25 +456,22 @@ def render_dashboard(selected_key):
     with st.expander("🔬 Larvae Identification Data (Click to Expand)", expanded=False):
         df_id = load_kobo_data(current_config['id_url'])
         
-       
-        # ---------------------
+        # 1. Define Clean Targets
+        COL_GENUS = "Select the Genus:".strip()
+        COL_SPECIES = "Select the Species:".strip()
+        COL_CONTAINER_LABEL = "Type of container in which the sample was collected from".strip() # Target (Cleaned)
+        COL_SUBMITTED = "_submitted_by".strip()
+        
+        # 2. Find Actual Column Names (Robust Search - strips all spaces from headers)
+        clean_to_orig_map = {col.strip(): col for col in df_id.columns}
+
+        col_genus = clean_to_orig_map.get(COL_GENUS)
+        col_species = clean_to_orig_map.get(COL_SPECIES)
+        col_container = clean_to_orig_map.get(COL_CONTAINER_LABEL) # FIX IS APPLIED HERE
+        col_submitted = clean_to_orig_map.get(COL_SUBMITTED)
+        # --------------------------------------
 
         if not df_id.empty:
-            # 1. Define Clean Targets
-            COL_GENUS = "Select the Genus:".strip()
-            COL_SPECIES = "Select the Species:".strip()
-            COL_CONTAINER_LABEL = "Type of container in which the sample was collected from".strip() # Target (Cleaned)
-            COL_SUBMITTED = "_submitted_by".strip()
-
-            # 2. Find Actual Column Names (Robust Search)
-            clean_to_orig_map = {col.strip(): col for col in df_id.columns}
-
-            col_genus = clean_to_orig_map.get(COL_GENUS)
-            col_species = clean_to_orig_map.get(COL_SPECIES)
-            col_container = clean_to_orig_map.get(COL_CONTAINER_LABEL) # FIX: Uses the cleaned key
-            col_submitted = clean_to_orig_map.get(COL_SUBMITTED)
-            # --------------------------------------
-
             col_map_id = {c.lower(): c for c in df_id.columns}
             date_col_id = next((c for c in df_id.columns if c in ['Date', 'today', 'date']), None)
             addr_cols = ['address', 'location', 'premise', 'premises', 'streetname']
@@ -539,7 +533,7 @@ def render_dashboard(selected_key):
                     cont_counts.columns = ['Container', 'Count']
                     fig_c = px.pie(cont_counts, values='Count', names='Container', hole=0.4)
                     st.plotly_chart(fig_c, use_container_width=True)
-                else: st.info(f"Container data missing. Looked for: '{COL_CONTAINER_LABEL}'")
+                else: st.warning(f"Container data missing. Looked for: '{COL_CONTAINER_LABEL}'")
 
             with c3:
                 if col_submitted:
@@ -575,6 +569,7 @@ def render_dashboard(selected_key):
             staff_perf.index.name = 'S.No'
             staff_perf = staff_perf.reset_index()
             
+            # REMOVED Larvae ID Entries column
             final_cols_staff = ['S.No', 'Name', 'Days Worked', 'Total Entries', 'Positive Found', 'Positive Containers', 'Container Index']
             
             staff_final = staff_perf[[c for c in final_cols_staff if c in staff_perf.columns]]
