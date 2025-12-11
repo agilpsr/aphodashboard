@@ -13,14 +13,11 @@ import base64
 import datetime
 
 # --- 1. SETUP PAGE CONFIGURATION ---
-st.set_page_config(page_title="APHO Tiruchirappalli Dashboard", layout="wide")
+st.set_page_config(page_title="APHO Tiruchirappalli Dashboard", layout="wide", page_icon="🦟")
 
 # --- INITIALIZE SESSION STATE ---
 if 'reports' not in st.session_state:
     st.session_state['reports'] = []
-
-if 'authenticated' not in st.session_state:
-    st.session_state['authenticated'] = False
 
 # --- STAFF NAME MAPPING ---
 STAFF_NAMES = {
@@ -89,8 +86,12 @@ def load_kobo_data(url):
 def plot_metric_bar(data, x_col, y_col, title, color_col, range_max=None):
     if data.empty: return None
     r_max = range_max if range_max else (data[y_col].max() * 1.1 if data[y_col].max() > 0 else 20)
+    
+    # --- UPDATE: Green to Red Gradient for Indices ---
+    # RdYlGn_r means Red-Yellow-Green Reversed -> Low=Green, High=Red
     fig = px.bar(data, x=x_col, y=y_col, title=title, text=y_col, color=color_col, 
-                 color_continuous_scale='Blues', range_color=[0, r_max])
+                 color_continuous_scale='RdYlGn_r', range_color=[0, 10]) # Set range to stabilize gradient
+                 
     fig.update_layout(
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
@@ -152,7 +153,6 @@ def get_base64_of_bin_file(bin_file):
 
 # --- FILE HANDLERS ---
 def get_pdf_bytes(filename):
-    """Reads a local PDF file into bytes for download/viewing."""
     try:
         with open(filename, 'rb') as f:
             return f.read()
@@ -283,43 +283,11 @@ def generate_narrative_summary(df, selected_key, date_col, col_street, col_subzo
             
     return "\n\n".join(narrative)
 
-# --- AUTHENTICATION ---
-def check_password():
-    """Returns `True` if the user had a correct password."""
-    def password_entered():
-        if st.session_state["password"] == "Aphotrz@2025":
-            st.session_state["authenticated"] = True
-            del st.session_state["password"] 
-        else:
-            st.session_state["authenticated"] = False
+# --- PASSWORD FUNCTION ---
+def check_password_on_home():
+    return True
 
-    if st.session_state.get("authenticated", False):
-        return True
-
-    st.markdown("""
-        <style>
-        .stApp { background-color: #f8fafc; }
-        .login-box {
-            max-width: 400px;
-            margin: 100px auto;
-            padding: 30px;
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-            text-align: center;
-        }
-        </style>
-    """, unsafe_allow_html=True)
-    
-    st.markdown('<div class="login-box"><h2>🔐 Access Restricted</h2><p>Please enter your credentials.</p></div>', unsafe_allow_html=True)
-    st.text_input("Password", type="password", on_change=password_entered, key="password")
-    
-    if "authenticated" in st.session_state and not st.session_state["authenticated"]:
-        st.error("😕 Incorrect password")
-        
-    return False
-
-# --- CUSTOM CSS INJECTION ---
+# --- CUSTOM CSS INJECTION (BEAUTIFICATION) ---
 def inject_custom_css():
     st.markdown("""
         <style>
@@ -327,57 +295,82 @@ def inject_custom_css():
         
         html, body, [class*="css"] {
             font-family: 'Inter', sans-serif;
+            background-color: #f0f4f8; /* Very light blue-grey background */
+        }
+        
+        /* The main container background pattern - DOODLE STYLE */
+        .stApp {
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'%3E%3Ctext x='10' y='30' font-size='24' opacity='0.08'%3E✈️%3C/text%3E%3Ctext x='60' y='80' font-size='24' opacity='0.08'%3E🦟%3C/text%3E%3Ctext x='80' y='30' font-size='24' opacity='0.08'%3E🏥%3C/text%3E%3Ctext x='20' y='80' font-size='24' opacity='0.08'%3E🧹%3C/text%3E%3C/svg%3E");
+            background-attachment: fixed;
         }
 
+        /* Header Styling */
         .main-header {
-            background: linear-gradient(135deg, #1E3A8A 0%, #3B82F6 100%);
-            padding: 2rem;
-            border-radius: 12px;
+            background: linear-gradient(135deg, #0052cc 0%, #00a3ff 100%);
+            padding: 3rem 1rem;
+            border-radius: 0 0 20px 20px;
             color: white;
             text-align: center;
             margin-bottom: 2rem;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            box-shadow: 0 8px 20px rgba(0,82,204,0.2);
+        }
+        .main-header h1 {
+            font-weight: 800;
+            letter-spacing: -1px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         
+        /* Card Styling for Content */
         .block-container {
-            padding-top: 2rem !important;
+            padding-top: 0 !important;
         }
-
+        
+        /* Button Styling - BIG TILES */
+        div.stButton > button {
+            width: 100%;
+            height: 100px;
+            font-size: 20px !important;
+            font-weight: 600 !important;
+            color: white !important;
+            background: linear-gradient(135deg, #1E3A8A 0%, #3B82F6 100%);
+            border: none !important;
+            border-radius: 15px !important;
+            box-shadow: 0 6px 12px rgba(30, 58, 138, 0.15) !important;
+            transition: all 0.3s ease !important;
+            margin-bottom: 10px;
+        }
+        div.stButton > button:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(30, 58, 138, 0.25) !important;
+        }
+        
+        /* Metric Cards */
         div[data-testid="stMetric"] {
-            background-color: #ffffff;
-            border: 1px solid #e0e0e0;
-            padding: 15px 20px;
-            border-radius: 10px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-            transition: all 0.3s ease;
+            background-color: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            border: 1px solid #eef2f6;
+            text-align: center;
         }
-        div[data-testid="stMetric"]:hover {
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-            border-color: #3B82F6;
+        div[data-testid="stMetricLabel"] {
+            font-size: 0.9rem;
+            color: #64748b;
+            font-weight: 600;
+        }
+        div[data-testid="stMetricValue"] {
+            font-size: 1.8rem;
+            color: #0f172a;
+            font-weight: 700;
         }
 
-        .streamlit-expanderHeader {
-            background-color: #f8fafc;
-            border-radius: 8px;
-            font-weight: 600;
-            color: #1e293b;
+        /* Container opacity for readability over doodles */
+        .element-container, .stDataFrame, .stTable {
+            background-color: rgba(255, 255, 255, 0.9);
+            border-radius: 10px;
+            padding: 10px;
         }
         
-        div[data-testid="stDataFrame"] {
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            overflow: hidden;
-        }
-        
-        .stButton button {
-            border-radius: 8px;
-            font-weight: 600;
-            transition: all 0.2s;
-        }
-        
-        .css-18e3th9 {
-            padding-top: 1rem;
-        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -387,9 +380,10 @@ def render_dashboard(selected_key):
     
     current_config = SECTION_CONFIG[selected_key]
     
+    # Styled Header
     st.markdown(f"""
         <div class="main-header">
-            <h1 style="margin:0; font-size: 2.2rem;">{current_config.get('icon', '')} {current_config['title']}</h1>
+            <h1>{current_config.get('icon', '')} {current_config['title']}</h1>
         </div>
     """, unsafe_allow_html=True)
 
@@ -860,10 +854,7 @@ def render_home_page():
     
     if st.session_state.get('page') not in ['peri', 'intra', 'flights', 'anti_larval', 'sanitary']:
         st.header("Select Activity Section")
-        
-        # Grid Layout for Home Page
         col1, col2 = st.columns(2)
-        
         with col1:
             if st.button("🦟 Outside Field Activities (Peri)", use_container_width=True, type="primary"):
                 st.session_state['page'] = 'peri'
@@ -876,7 +867,6 @@ def render_home_page():
             if st.button("🧹 Sanitary & Toilet Reports", use_container_width=True, type="primary"):
                 st.session_state['page'] = 'sanitary'
                 st.rerun()
-
         with col2:
             if st.button("✈️ International Flights Screening", use_container_width=True, type="primary"):
                 st.session_state['page'] = 'flights'
