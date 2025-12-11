@@ -13,7 +13,7 @@ import base64
 import datetime
 
 # --- 1. SETUP PAGE CONFIGURATION ---
-st.set_page_config(page_title="APHO Tiruchirappalli Dashboard", layout="wide", page_icon="🦟")
+st.set_page_config(page_title="APHO Tiruchirappalli Dashboard", layout="wide")
 
 # --- INITIALIZE SESSION STATE ---
 if 'reports' not in st.session_state:
@@ -446,8 +446,10 @@ def render_dashboard(selected_key):
             toilet_col = clean_cols.get(target_toilet)
             if not toilet_col: toilet_col = next((c for c in df_action.columns if 'toilet' in c.lower() and 'url' in c.lower()), None)
             
-            if sanitary_col: column_config[sanitary_col] = st.column_config.LinkColumn("Sanitary Report", display_text="📥 Download Sanitary")
-            if toilet_col: column_config[toilet_col] = st.column_config.LinkColumn("Toilet Report", display_text="📥 Download Toilet")
+            if sanitary_col:
+                column_config[sanitary_col] = st.column_config.LinkColumn("Sanitary Report", display_text="📥 Download Sanitary")
+            if toilet_col:
+                column_config[toilet_col] = st.column_config.LinkColumn("Toilet Report", display_text="📥 Download Toilet")
 
         system_cols = ['start', 'end', '_id', '_uuid', '_submission_time', '_validation_status', '_notes', '_status', '_submitted_by', '__version__', '_tags', '_index']
         display_cols = [c for c in df_action.columns if c not in system_cols]
@@ -537,7 +539,7 @@ def render_dashboard(selected_key):
                 
         summary_df = pd.DataFrame(summary_data, columns=["Metric", "Value"])
         st.table(summary_df)
-        st.download_button("Download Raw Flights Data", to_excel(df_filtered), "Flights_Raw_Data_Filtered.xlsx", key="flights_raw_download")
+        st.download_button("Download Raw Flights Data", to_excel(df_filtered), "Flights_Raw_Data.xlsx", key="flights_raw_download")
         st.stop()
 
     # --- STANDARD DASHBOARD FILTERS ---
@@ -665,34 +667,31 @@ def render_dashboard(selected_key):
                     st.warning("Premises data not available for graphing.")
 
     with st.expander("🌍 Geo-Spatial Map", expanded=False):
-        if st.button("🔍 Maximize Map", key=f"max_map_{selected_key}"):
-            if col_lat in df_for_graphs.columns and col_lon in df_for_graphs.columns:
-                 map_df = df_for_graphs.dropna(subset=[col_lat, col_lon]).copy()
-                 if not map_df.empty:
-                    m = folium.Map(location=[map_df[col_lat].mean(), map_df[col_lon].mean()], zoom_start=13)
-                    for _, row in map_df.iterrows():
-                        color = '#00ff00' if row['pos_house_calc'] == 0 else '#ff0000'
-                        # Construct Popup Table
-                        popup_html = "<div style='width:300px; height:200px; overflow-y:auto;'><table border='1' style='width:100%'>"
-                        for col, val in row.items():
-                             if not str(col).startswith("_") and pd.notna(val):
-                                  popup_html += f"<tr><td><b>{col}</b></td><td>{val}</td></tr>"
-                        popup_html += "</table></div>"
-                        folium.CircleMarker(
-                            [row[col_lat], row[col_lon]], radius=6, color=color, fill=True, fill_color=color,
-                            popup=folium.Popup(popup_html, max_width=350)
-                        ).add_to(m)
-                    show_large_map(m)
-
+        # 1. Standard Map
         if col_lat in df_for_graphs.columns and col_lon in df_for_graphs.columns:
             map_df = df_for_graphs.dropna(subset=[col_lat, col_lon]).copy()
             if not map_df.empty:
+                # Get the column for House Number
+                col_house = next((c for c in df_filtered.columns if 'house' in c.lower() and 'number' in c.lower()), None)
+
                 m = folium.Map(location=[map_df[col_lat].mean(), map_df[col_lon].mean()], zoom_start=13)
                 for _, row in map_df.iterrows():
                     color = '#00ff00' if row['pos_house_calc'] == 0 else '#ff0000'
-                    folium.CircleMarker([row[col_lat], row[col_lon]], radius=6, color=color, fill=True, fill_color=color).add_to(m)
-                # FIX: Added unique key to prevent duplicate element ID error
-                st_folium(m, height=400, key=f"main_map_{selected_key}")
+                    
+                    # Construct Tooltip
+                    tooltip_html = f"""
+                    <b>Street:</b> {row.get(col_street, 'N/A')}<br>
+                    <b>House No:</b> {row.get(col_house, 'N/A')}<br>
+                    <b>Pos Containers:</b> {row.get('pos_cont_calc', 0)}
+                    """
+                    
+                    folium.CircleMarker(
+                        [row[col_lat], row[col_lon]], radius=6, color=color, fill=True, fill_color=color,
+                        tooltip=tooltip_html 
+                    ).add_to(m)
+                
+                # Full width and increased height
+                st_folium(m, height=700, use_container_width=True, key=f"main_map_{selected_key}")
 
     if current_config.get('id_url'):
         with st.expander("🔬 Larvae Identification Data", expanded=False):
