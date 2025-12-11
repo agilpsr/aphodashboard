@@ -6,7 +6,7 @@ import plotly.express as px
 import re
 import urllib.parse
 import folium
-from folium.plugins import Fullscreen  # <--- IMPORT ADDED HERE
+from folium.plugins import Fullscreen
 from streamlit_folium import st_folium
 import xlsxwriter
 from PIL import Image
@@ -717,7 +717,19 @@ def render_dashboard(selected_key):
 
                 for _, row in map_df.iterrows():
                     color = '#00ff00' if row['pos_house_calc'] == 0 else '#ff0000'
-                    folium.CircleMarker([row[col_lat], row[col_lon]], radius=6, color=color, fill=True, fill_color=color).add_to(m)
+                    
+                    # --- ADDED TOOLTIP LOGIC HERE ---
+                    tooltip_text = f"Number of containers positive: {int(row['pos_cont_calc'])}"
+                    
+                    folium.CircleMarker(
+                        [row[col_lat], row[col_lon]], 
+                        radius=6, 
+                        color=color, 
+                        fill=True, 
+                        fill_color=color,
+                        tooltip=tooltip_text
+                    ).add_to(m)
+                    
                 st_folium(m, height=400, use_container_width=True)
 
     if current_config.get('id_url'):
