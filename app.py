@@ -487,33 +487,10 @@ def render_dashboard(selected_key):
     
     # --- ROBUST CALCULATION (The Fix for Peri Map) ---
     col_pos_house_raw = find_column_by_keywords(df, ["how_many_wet_containers_were_found_positive", "among_the_wet", "positive_premises"])
-    
-    # FIX: Explicit check for the exact string user provided
-    col_pos_cont_raw = find_column_by_keywords(df, ["Among_the_wet_containers_how_", "how_many_wet_containers_were_found_positive", "positive_containers"])
-    
+    col_pos_cont_raw = find_column_by_keywords(df, ["how_many_wet_containers_were_found_positive", "positive_containers"])
     col_wet_cont_raw = find_column_by_keywords(df, ["wet_containers", "wet container", "wet_containers_inspected"])
     col_dry_cont_raw = find_column_by_keywords(df, ["dry_container", "dry container"])
 
-    if col_pos_house_raw:
-        df['pos_house_calc'] = pd.to_numeric(df[col_pos_house_raw], errors='coerce').fillna(0)
-    else:
-        df['pos_house_calc'] = 0
-
-    if col_pos_cont_raw:
-        df['pos_cont_calc'] = pd.to_numeric(df[col_pos_cont_raw], errors='coerce').fillna(0)
-    else:
-        df['pos_cont_calc'] = 0
-
-    if col_wet_cont_raw:
-        df['wet_cont_calc'] = pd.to_numeric(df[col_wet_cont_raw], errors='coerce').fillna(0)
-    else:
-        df['wet_cont_calc'] = 0
-
-    if col_dry_cont_raw:
-        df['dry_cont_calc'] = pd.to_numeric(df[col_dry_cont_raw], errors='coerce').fillna(0)
-    else:
-        df['dry_cont_calc'] = 0
-    
     # --- START FILTERING ---
     st.sidebar.markdown("### 🔍 Filters") 
     df_filtered = df.copy()
@@ -526,10 +503,9 @@ def render_dashboard(selected_key):
     col_premises = "Premises" if "Premises" in df.columns else col_map_lower.get('premises')
     
     # Attempt to find GPS columns robustly
-    col_lat = next((c for c in df.columns if '_location_latitude' in c.lower()), None)
+    col_lat = next((c for c in df.columns if 'location' in c.lower() and 'latitude' in c.lower()), None)
     if not col_lat: col_lat = next((c for c in df.columns if 'latitude' in c.lower()), None)
-
-    col_lon = next((c for c in df.columns if '_location_longitude' in c.lower()), None)
+    col_lon = next((c for c in df.columns if 'location' in c.lower() and 'longitude' in c.lower()), None)
     if not col_lon: col_lon = next((c for c in df.columns if 'longitude' in c.lower()), None)
     
     date_col = "Date" if "Date" in df.columns else col_map_lower.get('date')
@@ -547,6 +523,11 @@ def render_dashboard(selected_key):
         mask = (df_filtered[date_col].dt.date >= start_date) & (df_filtered[date_col].dt.date <= end_date)
         df_filtered = df_filtered.loc[mask]
         
+    # --- DEBUGGING FOR PERI AIRPORT COLUMNS (Can Remove Later) ---
+    if selected_key == 'peri':
+        with st.expander("🛠️ Debug: View Peri Data Columns"):
+            st.write(df.columns.tolist())
+            
     # --- FLIGHTS SCREENING SUMMARY ---
     if selected_key == 'flights':
         clean_cols = {c.strip().lower(): c for c in df.columns}
@@ -579,7 +560,7 @@ def render_dashboard(selected_key):
                 
         summary_df = pd.DataFrame(summary_data, columns=["Metric", "Value"])
         st.table(summary_df)
-        st.download_button("Download Raw Flights Data", to_excel(df_filtered), "Flights_Raw_Data.xlsx", key="flights_raw_download")
+        st.download_button("Download Raw Flights Data", to_excel(df_filtered), "Flights_Raw_Data_Filtered.xlsx", key="flights_raw_download")
         st.stop()
 
     # --- STANDARD DASHBOARD FILTERS ---
@@ -595,6 +576,11 @@ def render_dashboard(selected_key):
         st.sidebar.multiselect(f"SubZone", opts, key=f"subzone_filter_{selected_key}")
         if st.session_state.get(f"subzone_filter_{selected_key}"):
              df_filtered = df_filtered[df_filtered[col_subzone].astype(str).isin(st.session_state[f"subzone_filter_{selected_key}"])]
+
+    # Calcs
+    for col, raw_col in [('pos_house_calc', col_pos_house_raw), ('pos_cont_calc', col_pos_cont_raw), ('wet_cont_calc', col_wet_cont_raw)]:
+        df_filtered[col] = pd.to_numeric(df_filtered[raw_col], errors='coerce').fillna(0) if raw_col in df_filtered.columns else 0
+    df_filtered['dry_cont_calc'] = pd.to_numeric(df_filtered[col_dry_cont_raw], errors='coerce').fillna(0) if col_dry_cont_raw in df_filtered.columns else 0
 
     display_count, positive_count, hi_val, ci_val, bi_val = 0, 0, 0, 0, 0
     if selected_key == 'intra':
@@ -723,24 +709,9 @@ def render_dashboard(selected_key):
                     if selected_key == 'intra':
                         tooltip_html = f"<b>Premises:</b> {row.get(col_premises, 'N/A')}<br><b>Pos Containers:</b> {row.get('pos_cont_calc', 0)}"
                     else:
-                        # PERI SPECIFIC: Explicitly using requested column logic
-                        # Col 7: Zone (index 6 approx in raw, but we used named cols)
-                        # Col 8: Subzone, Col 9: Street, Col 10: House, Col 14: Pos Cont
-                        
-                        # We use the robustly found column names
-                        val_zone = row.get('zone', 'N/A')
-                        val_subzone = row.get('subzone', 'N/A')
-                        val_street = row.get('streetname', 'N/A')
-                        val_house = row.get('House_number_Buildin_ure_for_the_location', 'N/A')
-                        val_pos = row.get('Among_the_wet_containers_how_', 0)
-                        
-                        tooltip_html = f"""
-                        <b>Zone:</b> {val_zone}<br>
-                        <b>Subzone:</b> {val_subzone}<br>
-                        <b>Street:</b> {val_street}<br>
-                        <b>House No:</b> {val_house}<br>
-                        <b>Pos Containers:</b> {val_pos}
-                        """
+                        # Peri-specific robust tooltip
+                        # Only show lat/long or basic ID if columns are missing to prevent crash
+                        tooltip_html = f"<b>Pos Containers:</b> {row.get('pos_cont_calc', 0)}"
 
                     folium.CircleMarker(
                         [row[col_lat], row[col_lon]], radius=7, color=color, fill=True, fill_color=color,
