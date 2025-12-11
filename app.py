@@ -15,6 +15,10 @@ import datetime
 # --- 1. SETUP PAGE CONFIGURATION ---
 st.set_page_config(page_title="APHO Tiruchirappalli Dashboard", layout="wide")
 
+# --- INITIALIZE SESSION STATE FOR REPORTS ---
+if 'reports' not in st.session_state:
+    st.session_state['reports'] = []
+
 # --- STAFF NAME MAPPING ---
 STAFF_NAMES = {
     'abhiguptak': 'Abhishek Gupta', 'arunhealthinspector': 'Arun', 'chandru1426': 'Chandru',
@@ -144,13 +148,22 @@ def show_add_report_dialog():
             report_year = st.number_input("Year", min_value=2020, max_value=2030, value=datetime.date.today().year)
             
         summary = st.text_area("Summary of Actions Taken", height=150, placeholder="Describe measures taken, areas covered, chemicals used, etc.")
-        
         uploaded_file = st.file_uploader("Upload Action Report (PDF)", type=['pdf'])
         
         submitted = st.form_submit_button("Submit Report")
         
         if submitted:
-            st.success(f"Report for {report_month} {report_year} submitted successfully!")
+            # Create a dictionary for the new report
+            new_report = {
+                "Month": report_month,
+                "Year": report_year,
+                "Summary": summary,
+                "File Name": uploaded_file.name if uploaded_file else "No File",
+                "Uploaded At": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+            }
+            # Append to session state so it persists
+            st.session_state['reports'].append(new_report)
+            st.success("Report submitted successfully!")
             st.rerun()
 
 # --- GLOBAL REPORT FUNCTION ---
@@ -288,14 +301,24 @@ def render_dashboard(selected_key):
     current_config = SECTION_CONFIG[selected_key]
     st.title(current_config['title'])
 
-    # --- ANTI-LARVAL ACTION REPORTS ---
+    # --- ANTI-LARVAL ACTION REPORTS (New Section) ---
     if selected_key == 'anti_larval':
         st.markdown("### Monthly Action Reports Repository")
+        
         c1, c2 = st.columns([3, 1])
         with c2:
             if st.button("➕ Add New Report", use_container_width=True):
                 show_add_report_dialog()
-        st.info("No reports have been uploaded yet.")
+        
+        # Display table of reports from Session State
+        if st.session_state['reports']:
+            report_df = pd.DataFrame(st.session_state['reports'])
+            # Reorder columns for better view
+            cols = ['Month', 'Year', 'Summary', 'File Name', 'Uploaded At']
+            st.dataframe(report_df[cols], use_container_width=True)
+        else:
+            st.info("No reports have been uploaded yet.")
+            
         st.stop()
     # -----------------------------------------------
 
@@ -329,11 +352,10 @@ def render_dashboard(selected_key):
         st.info("No data found or error loading Kobo data.")
         return
     
-    # --- START FILTERING ---
+    # --- START FILTERING (All sections use this) ---
     st.sidebar.subheader("Filters") 
     df_filtered = df.copy()
 
-    # Column Mapping
     col_map_lower = {c.lower(): c for c in df.columns}
     col_zone = col_map_lower.get('zone')
     col_subzone = col_map_lower.get('subzone')
@@ -363,7 +385,6 @@ def render_dashboard(selected_key):
 
     # --- FLIGHTS SCREENING SUMMARY (Special Case) ---
     if selected_key == 'flights':
-        # Dynamic Column Search for Flights
         clean_cols = {c.strip().lower(): c for c in df.columns}
         staff1_col = clean_cols.get("flight_duty_personnel") 
         staff2_col = clean_cols.get("deputy")
