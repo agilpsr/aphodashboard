@@ -15,10 +15,6 @@ import datetime
 # --- 1. SETUP PAGE CONFIGURATION ---
 st.set_page_config(page_title="APHO Tiruchirappalli Dashboard", layout="wide")
 
-# --- INITIALIZE SESSION STATE FOR REPORTS ---
-if 'reports' not in st.session_state:
-    st.session_state['reports'] = []
-
 # --- STAFF NAME MAPPING ---
 STAFF_NAMES = {
     'abhiguptak': 'Abhishek Gupta', 'arunhealthinspector': 'Arun', 'chandru1426': 'Chandru',
@@ -47,7 +43,6 @@ SECTION_CONFIG = {
     },
     'anti_larval': {
         'title': 'Anti-Larval Action Reports',
-        # Updated URL for Action Reports
         'surv_url': 'https://kf.kobotoolbox.org/api/v2/assets/az3jC73Chq5yPKMhM73eMm/export-settings/esJCVJu8sXKCxUfywczgC4x/data.csv',
         'id_url': None
     }
@@ -280,26 +275,46 @@ def render_dashboard(selected_key):
             st.info("No reports found.")
             st.stop()
             
-        # Display the data
-        st.subheader("Monthly Action Reports")
+        st.subheader("Monthly Action Reports Repository")
         
-        # Configure columns for display
-        # Look for PDF column roughly
-        pdf_col = next((c for c in df_action.columns if 'pdf' in c.lower() or 'file' in c.lower()), None)
+        # 1. Identify the URL column using robust matching
+        clean_cols = {c.strip().lower(): c for c in df_action.columns}
+        # The key mentioned was: "upload action taken report (pdf) _URL"
+        # Note: Kobo sometimes adds group names or changes spaces to underscores.
+        # We try strict match first, then fuzzy.
+        target_key = "upload action taken report (pdf) _url"
+        pdf_col = clean_cols.get(target_key)
         
-        # We need to make the PDF column clickable
-        if pdf_col:
-            df_action['Download Link'] = df_action[pdf_col].apply(
-                lambda x: f'<a href="{x}" target="_blank">📥 Download PDF</a>' if pd.notna(x) else "No File"
-            )
-            # Move Download Link to front or specific position if needed
-            cols = [c for c in df_action.columns if c != pdf_col and c != 'Download Link']
-            df_display = df_action[['Download Link'] + cols]
-        else:
-            df_display = df_action
+        if not pdf_col:
+             # Fuzzy search: look for 'pdf' AND 'url' in the same header
+             pdf_col = next((c for c in df_action.columns if 'pdf' in c.lower() and 'url' in c.lower()), None)
 
-        # Render HTML table to allow links to work
-        st.write(df_display.to_html(escape=False, index=False), unsafe_allow_html=True)
+        if pdf_col:
+            # We use Streamlit's column configuration to make this a clickable link
+            # We'll rename it to "Download Report" for the view
+            
+            # Filter out Kobo system columns for a cleaner view
+            system_cols = ['start', 'end', '_id', '_uuid', '_submission_time', '_validation_status', '_notes', '_status', '_submitted_by', '__version__', '_tags', '_index']
+            display_cols = [c for c in df_action.columns if c not in system_cols]
+            
+            # Ensure the PDF col is in the display list
+            if pdf_col not in display_cols:
+                display_cols.append(pdf_col)
+
+            st.dataframe(
+                df_action[display_cols],
+                column_config={
+                    pdf_col: st.column_config.LinkColumn(
+                        "Download Report",
+                        display_text="📥 Download PDF"
+                    )
+                },
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.warning("Could not identify the PDF URL column automatically. Displaying raw data.")
+            st.dataframe(df_action, use_container_width=True)
         
         st.stop()
     # -----------------------------------------------
@@ -367,6 +382,7 @@ def render_dashboard(selected_key):
 
     # --- FLIGHTS SCREENING SUMMARY (Special Case) ---
     if selected_key == 'flights':
+        
         clean_cols = {c.strip().lower(): c for c in df.columns}
         staff1_col = clean_cols.get("flight_duty_personnel") 
         staff2_col = clean_cols.get("deputy")
