@@ -78,19 +78,46 @@ def normalize_string(text):
     return re.sub(r'[^a-z0-9]', '', str(text).lower())
 
 def get_thumbnail_url(original_url):
+    # Uses a proxy to resize images on the fly to 100px width and 60% quality for speed
     if not isinstance(original_url, str) or not original_url.startswith("http"): return None
-    return f"https://wsrv.nl/?url={urllib.parse.quote(original_url)}&w=400&q=80"
+    encoded = urllib.parse.quote(original_url)
+    return f"https://wsrv.nl/?url={encoded}&w=100&q=60"
 
-@st.dialog("Microscopic View", width="large")
+@st.dialog("🔬 Larvae Details", width="large")
 def show_image_popup(row_data):
-    st.subheader(f"{row_data['Genus']} ({row_data['Species']})")
-    c1, c2 = st.columns(2)
-    c1.info(f"📍 **Address:** {row_data['Address']}")
-    c2.warning(f"📅 **Date:** {row_data['Date']}")
-    if row_data['Original Image URL'] and str(row_data['Original Image URL']).startswith('http'):
-        st.image(row_data['Original Image URL'], caption="Full Resolution", use_container_width=True)
-    else:
-        st.error("Image not available.")
+    # Mapping for cleaner display labels
+    col_genus = "Select the Genus:"
+    col_species = "Select the Species:"
+    col_container = "Type of container the sample was collected from"
+    col_submitted = "_submitted_by"
+    
+    # Extract Data
+    genus = row_data.get(col_genus, 'N/A')
+    species = row_data.get(col_species, 'N/A')
+    container = row_data.get(col_container, 'N/A')
+    submitted_by = row_data.get(col_submitted, 'N/A')
+    address = row_data.get('Calculated_Address', 'N/A')
+    img_url = row_data.get('Original_Image_URL', None)
+
+    st.subheader(f"{genus} ({species})")
+    
+    c1, c2 = st.columns([1.5, 1])
+    
+    with c1:
+        if img_url and str(img_url).startswith('http'):
+            st.image(img_url, caption="Microscopic View", use_container_width=True)
+        else:
+            st.error("Image not available.")
+            
+    with c2:
+        st.markdown(f"**📍 Address:**")
+        st.info(address)
+        
+        st.markdown(f"**🪣 Container Type:**")
+        st.warning(container)
+        
+        st.markdown(f"**👤 Submitted By:**")
+        st.write(submitted_by)
 
 def get_base64_of_bin_file(bin_file):
     with open(bin_file, 'rb') as f:
@@ -169,7 +196,6 @@ def check_password_on_home():
     if st.session_state.get("password_correct", False):
         return True
     
-    # Show Input
     st.text_input("🔒 Enter Password to Login", type="password", on_change=password_entered, key="password")
     if "password_correct" in st.session_state and not st.session_state["password_correct"]:
         st.error("❌ Password incorrect")
@@ -177,7 +203,6 @@ def check_password_on_home():
 
 # --- MAIN DASHBOARD RENDERER ---
 def render_dashboard(selected_key):
-    # CSS: Reset margins so dashboard uses full screen
     st.markdown("""
         <style>
         .block-container {
@@ -450,11 +475,99 @@ def render_dashboard(selected_key):
                     folium.CircleMarker([row[col_lat], row[col_lon]], radius=6, color=color, fill=True, fill_color=color).add_to(m)
                 st_folium(m, height=400)
 
+    # --- LARVAE ID TABLE (UPDATED) ---
     with st.expander("🔬 Larvae Identification Data", expanded=False):
         df_id = load_kobo_data(current_config['id_url'])
+        
         if not df_id.empty:
-            st.dataframe(df_id, use_container_width=True)
-        else: st.info("No ID Data")
+            # 1. Map Columns
+            col_map_id = {c.lower(): c for c in df_id.columns}
+            date_col_id = next((c for c in df_id.columns if c in ['Date', 'today', 'date']), None)
+            
+            # Address mapping
+            addr_cols = ['address', 'location', 'premise', 'premises', 'streetname']
+            col_address_id = next((col_map_id.get(k) for k in addr_cols if col_map_id.get(k)), 'N/A')
+            
+            # Image URL mapping
+            img_search = ["Attach the microscopic image of the larva _URL", "Attach the microscopic image of the larva_URL", "image_url", "url"]
+            col_img = next((c for c in img_search if c in df_id.columns), None)
+            
+            col_genus = "Select the Genus:"
+            col_species = "Select the Species:"
+            col_container = "Type of container the sample was collected from"
+
+            # 2. Process Data
+            if date_col_id:
+                df_id[date_col_id] = pd.to_datetime(df_id[date_col_id])
+                
+            df_display = pd.DataFrame()
+            df_display['Date'] = df_id[date_col_id].dt.date if date_col_id else 'N/A'
+            df_display['Address'] = df_id[col_address_id] if col_address_id != 'N/A' else 'N/A'
+            df_display['Genus'] = df_id[col_genus] if col_genus in df_id.columns else 'N/A'
+            df_display['Species'] = df_id[col_species] if col_species in df_id.columns else 'N/A'
+            
+            # Create Thumbnail Column
+            if col_img:
+                df_display['Thumbnail'] = df_id[col_img].apply(get_thumbnail_url)
+                # Save original URL for popup
+                df_id['Original_Image_URL'] = df_id[col_img]
+            else:
+                df_display['Thumbnail'] = None
+                df_id['Original_Image_URL'] = None
+
+            # Add index as S.No
+            df_display = df_display.reset_index(drop=True)
+            df_display.index += 1
+            df_display.index.name = "S.No"
+            df_display = df_display.reset_index()
+
+            # Align for popup data
+            df_id['Calculated_Address'] = df_display['Address']
+            
+            st.info("💡 Click on a row to view full details and image.")
+            
+            # 3. Display Interactive Table
+            event = st.dataframe(
+                df_display,
+                column_order=["S.No", "Date", "Address", "Thumbnail", "Genus", "Species"],
+                column_config={
+                    "Thumbnail": st.column_config.ImageColumn("Microscopic Image", width="small"),
+                },
+                hide_index=True,
+                use_container_width=True,
+                on_select="rerun",
+                selection_mode="single-row"
+            )
+
+            # 4. Handle Popup
+            if len(event.selection.rows) > 0:
+                selected_index = event.selection.rows[0]
+                # Map back to original dataframe row
+                original_row = df_id.iloc[selected_index]
+                show_image_popup(original_row)
+
+            # 5. Pie Charts below table
+            st.divider()
+            c1, c2 = st.columns(2)
+            
+            if col_genus in df_id.columns:
+                c1.write("#### Genus Distribution")
+                genus_counts = df_id[col_genus].value_counts().reset_index()
+                genus_counts.columns = ['Genus', 'Count']
+                fig_g = px.pie(genus_counts, values='Count', names='Genus', hole=0.4)
+                c1.plotly_chart(fig_g, use_container_width=True)
+            
+            if col_container in df_id.columns:
+                c2.write("#### Container Distribution")
+                # Filter out empties
+                cont_data = df_id[df_id[col_container].notna() & (df_id[col_container] != "")]
+                cont_counts = cont_data[col_container].value_counts().reset_index()
+                cont_counts.columns = ['Container Type', 'Count']
+                fig_c = px.pie(cont_counts, values='Count', names='Container Type', hole=0.4)
+                c2.plotly_chart(fig_c, use_container_width=True)
+
+        else:
+            st.info("No identification data available.")
 
     st.divider()
     summary_text = generate_narrative_summary(df_filtered, selected_key, date_col, col_street, col_subzone, col_premises)
