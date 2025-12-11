@@ -10,18 +10,26 @@ from streamlit_folium import st_folium
 import xlsxwriter
 from PIL import Image
 import base64 
-import datetime
 
 # --- 1. SETUP PAGE CONFIGURATION ---
 st.set_page_config(page_title="APHO Tiruchirappalli Dashboard", layout="wide")
 
 # --- STAFF NAME MAPPING ---
 STAFF_NAMES = {
-    'abhiguptak': 'Abhishek Gupta', 'arunhealthinspector': 'Arun', 'chandru1426': 'Chandru',
-    'dineshg': 'Dinesh', 'iyyappank': 'Iyyapan', 'kalaig': 'Kalaichelvan',
-    'kishanth': 'Kishanth', 'nitesh9896': 'Nitesh', 'prabhahi': 'Prabhakaran',
-    'rajaramha': 'Rajaram', 'ramnareshfw': 'Ram naresh', 'siddhik23': 'siddhik',
-    'simbuha': 'Silambarasan', 'souravmalik7055': 'sourav MAlik'
+    'abhiguptak': 'Abhishek Gupta',
+    'arunhealthinspector': 'Arun',
+    'chandru1426': 'Chandru',
+    'dineshg': 'Dinesh',
+    'iyyappank': 'Iyyapan',
+    'kalaig': 'Kalaichelvan',
+    'kishanth': 'Kishanth',
+    'nitesh9896': 'Nitesh',
+    'prabhahi': 'Prabhakaran',
+    'rajaramha': 'Rajaram',
+    'ramnareshfw': 'Ram naresh',
+    'siddhik23': 'siddhik',
+    'simbuha': 'Silambarasan',
+    'souravmalik7055': 'sourav MAlik'
 }
 
 # --- CONFIGURATION DICTIONARY ---
@@ -35,16 +43,6 @@ SECTION_CONFIG = {
         'title': 'Intra-Airport Larvae Surveillance',
         'surv_url': 'https://kf.kobotoolbox.org/api/v2/assets/aEdcSxvmrBuXBmzXNECtjr/export-settings/esgYdEaEk79Y69k56abNGdW/data.csv',
         'id_url': 'https://kf.kobotoolbox.org/api/v2/assets/anN9HTYvmLRTorb7ojXs5A/export-settings/esLiqyb8KpPfeMX4ZnSoXSm/data.csv'
-    },
-    'flights': {
-        'title': 'International Flights Screened',
-        'surv_url': 'https://kf.kobotoolbox.org/api/v2/assets/aHdVBAGwFvJwpTaATAZN8v/export-settings/esFbR4cbEQXToCUwLfFGbV4/data.csv',
-        'id_url': None
-    },
-    'anti_larval': {
-        'title': 'Anti-Larval Action Reports',
-        'surv_url': None,
-        'id_url': None
     }
 }
 
@@ -61,7 +59,7 @@ def load_kobo_data(url):
         if "KOBO_TOKEN" in st.secrets:
             token = st.secrets["KOBO_TOKEN"]
         else:
-            token = "48554147c1c987a54b4196a03c1d9c"
+            token = "48554147c1847ddfe4c1c987a54b4196a03c1d9c"
         headers = {"Authorization": f"Token {token}"}
         response = requests.get(url, headers=headers)
         response.raise_for_status()
@@ -122,47 +120,10 @@ def get_base64_of_bin_file(bin_file):
         data = f.read()
     return base64.b64encode(data).decode()
 
-# --- FILE HANDLERS ---
-def get_pdf_bytes(filename):
-    """Reads a local PDF file into bytes for download/viewing."""
-    try:
-        with open(filename, 'rb') as f:
-            return f.read()
-    except FileNotFoundError:
-        return None
-
-# --- NEW: ANTI-LARVAL REPORT MODAL ---
-@st.dialog("➕ Add New Action Report")
-def show_add_report_dialog():
-    with st.form("add_action_report_form"):
-        st.write("Enter details for the monthly Anti-Larval Action Report.")
-        
-        c1, c2 = st.columns(2)
-        with c1:
-            report_month = st.selectbox("Month", ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"])
-        with c2:
-            report_year = st.number_input("Year", min_value=2020, max_value=2030, value=datetime.date.today().year)
-            
-        summary = st.text_area("Summary of Actions Taken", height=150, placeholder="Describe measures taken, areas covered, chemicals used, etc.")
-        
-        # FIX 1: Changed to accept PDF files
-        uploaded_file = st.file_uploader("Upload Action Report (PDF)", type=['pdf'])
-        
-        submitted = st.form_submit_button("Submit Report")
-        
-        if submitted:
-            # Here you would typically save to a database or cloud storage.
-            st.success(f"Report for {report_month} {report_year} submitted successfully!")
-            st.rerun()
-
 # --- GLOBAL REPORT FUNCTION ---
 def generate_report_df(df_source, date_col, col_username, selected_key, col_premises, col_subzone, col_street, current_config):
     with st.spinner("Fetching Identification Data..."):
-        if current_config.get('id_url'):
-            df_id_rep = load_kobo_data(current_config['id_url'])
-        else:
-            df_id_rep = pd.DataFrame()
-            
+        df_id_rep = load_kobo_data(current_config['id_url'])
         id_date_col = next((c for c in df_id_rep.columns if 'date' in c.lower() or 'today' in c.lower()), None)
         if id_date_col:
             df_id_rep[id_date_col] = pd.to_datetime(df_id_rep[id_date_col])
@@ -281,51 +242,30 @@ def generate_narrative_summary(df, selected_key, date_col, col_street, col_subzo
 
 # --- PASSWORD FUNCTION ---
 def check_password_on_home():
-    return True
+    def password_entered():
+        if st.session_state["password"] == "Aphotrz@2025":
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]
+        else:
+            st.session_state["password_correct"] = False
+    
+    if st.session_state.get("password_correct", False): return True
+    
+    st.text_input("🔒 Enter Password to Login", type="password", on_change=password_entered, key="password")
+    if "password_correct" in st.session_state and not st.session_state["password_correct"]:
+        st.error("❌ Password incorrect")
+    return False
 
 # --- MAIN DASHBOARD RENDERER ---
 def render_dashboard(selected_key):
     st.markdown("""<style>.block-container { margin-top: 2rem !important; padding-top: 1rem !important; }</style>""", unsafe_allow_html=True)
 
+    if st.sidebar.button("🏠 Back to Home"):
+        st.session_state['page'] = 'home'
+        st.rerun()
+    
     current_config = SECTION_CONFIG[selected_key]
     st.title(current_config['title'])
-
-    # --- ANTI-LARVAL ACTION REPORTS (New Section) ---
-    if selected_key == 'anti_larval':
-        st.markdown("### Monthly Action Reports Repository")
-        
-        c1, c2 = st.columns([3, 1])
-        with c2:
-            if st.button("➕ Add New Report", use_container_width=True):
-                show_add_report_dialog()
-        
-        # Placeholder Data 
-        st.info("No reports have been uploaded yet.")
-        st.stop()
-    # -----------------------------------------------
-
-    # --- ZONING MAP BUTTON ---
-    if selected_key == 'peri':
-        pdf_file_name = "zoning.pdf"
-    elif selected_key == 'intra':
-        pdf_file_name = "zoninginside.pdf"
-    else:
-        pdf_file_name = None 
-        
-    if pdf_file_name:
-        pdf_bytes = get_pdf_bytes(pdf_file_name)
-        if pdf_bytes:
-            st.download_button(
-                label="📄 View Zoning Map",
-                data=pdf_bytes,
-                file_name=pdf_file_name,
-                mime="application/pdf",
-                key=f'download_pdf_{selected_key}',
-                help=f"Click to open the {pdf_file_name} PDF in a new tab."
-            )
-        else:
-            st.warning(f"File '{pdf_file_name}' not found. Ensure it is uploaded to the root directory.")
-    # --------------------------
 
     with st.spinner('Fetching Surveillance data...'):
         df = load_kobo_data(current_config['surv_url'])
@@ -333,11 +273,8 @@ def render_dashboard(selected_key):
     if df.empty:
         st.info("No data found or error loading Kobo data.")
         return
-    
-    # --- START FILTERING (All sections use this) ---
-    st.sidebar.subheader("Filters") 
-    df_filtered = df.copy()
 
+    # Column Mapping
     col_map_lower = {c.lower(): c for c in df.columns}
     col_zone = col_map_lower.get('zone')
     col_subzone = col_map_lower.get('subzone')
@@ -355,79 +292,27 @@ def render_dashboard(selected_key):
         for c in ['today', 'start', '_submission_time']:
              if c in col_map_lower: date_col = col_map_lower[c]; break
 
-    # Date Filter
+    # Filters
+    st.sidebar.divider()
+    st.sidebar.subheader("Filters")
+    df_filtered = df.copy()
     if date_col:
         df_filtered[date_col] = pd.to_datetime(df_filtered[date_col])
         min_date, max_date = df_filtered[date_col].min().date(), df_filtered[date_col].max().date()
         d1, d2 = st.sidebar.columns(2)
-        start_date = d1.date_input("Start", min_date, key=f"start_date_{selected_key}")
-        end_date = d2.date_input("End", max_date, key=f"end_date_{selected_key}")
+        start_date = d1.date_input("Start", min_date)
+        end_date = d2.date_input("End", max_date)
         mask = (df_filtered[date_col].dt.date >= start_date) & (df_filtered[date_col].dt.date <= end_date)
         df_filtered = df_filtered.loc[mask]
 
-    # --- FLIGHTS SCREENING SUMMARY (Special Case) ---
-    if selected_key == 'flights':
-        
-        clean_cols = {c.strip().lower(): c for c in df.columns}
-        staff1_col = clean_cols.get("flight_duty_personnel") 
-        staff2_col = clean_cols.get("deputy")
-        
-        if not staff1_col:
-             staff1_col = next((c for c in df.columns if "duty" in c.lower() and "personnel" in c.lower()), None)
-        if not staff2_col:
-             staff2_col = next((c for c in df.columns if "deputy" in c.lower()), None)
-
-        if staff1_col and staff2_col:
-            all_staff = pd.concat([df_filtered[staff1_col].dropna(), df_filtered[staff2_col].dropna()]).astype(str).unique().tolist()
-            selected_personnel = st.sidebar.multiselect(
-                "Filter by Duty Personnel", 
-                sorted(all_staff), 
-                key=f"personnel_filter_{selected_key}"
-            )
-            if selected_personnel:
-                mask = (df_filtered[staff1_col].astype(str).isin(selected_personnel)) | \
-                       (df_filtered[staff2_col].astype(str).isin(selected_personnel))
-                df_filtered = df_filtered[mask]
-        else:
-            st.sidebar.warning("Staff columns not found. Filters disabled.")
-
-        if df_filtered.empty:
-            st.info("No data available for the selected filters.")
-            st.stop()
-
-        st.header("International Flights Screening Data Summary")
-        summary_data = []
-        total_entries = len(df_filtered)
-        summary_data.append(["Total International Flights Screened (Total Entries)", total_entries])
-        total_days = df_filtered[date_col].dt.date.nunique() if date_col else 'N/A'
-        summary_data.append(["Total Days of Screening", total_days])
-        
-        numeric_df = df_filtered.select_dtypes(include=['number']).fillna(0)
-        exclude_cols = ['_index', 'latitude', 'longitude', 'accuracy', '_id', 'instanceid', 'start', 'end'] 
-        for col in numeric_df.columns:
-            if not col.startswith('_') and col.lower() not in exclude_cols:
-                col_sum = numeric_df[col].sum()
-                summary_data.append([col, f"{col_sum:,.0f}"])
-                
-        summary_df = pd.DataFrame(summary_data, columns=["Metric", "Value"])
-        st.table(summary_df)
-        
-        st.download_button("Download Raw Flights Data", to_excel(df_filtered), "Flights_Raw_Data_Filtered.xlsx", key="flights_raw_download")
-        st.stop()
-
-    # --- START OF STANDARD DASHBOARD (Peri/Intra) ---
-
     if col_zone and col_zone in df_filtered.columns:
         opts = sorted(df_filtered[col_zone].dropna().unique().astype(str))
-        st.sidebar.multiselect(f"Filter by Zone", opts, key=f"zone_filter_{selected_key}")
-        if st.session_state.get(f"zone_filter_{selected_key}"):
-             df_filtered = df_filtered[df_filtered[col_zone].astype(str).isin(st.session_state[f"zone_filter_{selected_key}"])]
-             
+        sel = st.sidebar.multiselect(f"Filter by Zone", opts)
+        if sel: df_filtered = df_filtered[df_filtered[col_zone].astype(str).isin(sel)]
     if col_subzone and col_subzone in df_filtered.columns:
         opts = sorted(df_filtered[col_subzone].dropna().unique().astype(str))
-        st.sidebar.multiselect(f"Filter by SubZone", opts, key=f"subzone_filter_{selected_key}")
-        if st.session_state.get(f"subzone_filter_{selected_key}"):
-             df_filtered = df_filtered[df_filtered[col_subzone].astype(str).isin(st.session_state[f"subzone_filter_{selected_key}"])]
+        sel = st.sidebar.multiselect(f"Filter by SubZone", opts)
+        if sel: df_filtered = df_filtered[df_filtered[col_subzone].astype(str).isin(sel)]
 
     # Calcs
     for col, raw_col in [('pos_house_calc', col_pos_house_raw), ('pos_cont_calc', col_pos_cont_raw), ('wet_cont_calc', col_wet_cont_raw)]:
@@ -439,6 +324,7 @@ def render_dashboard(selected_key):
         if col_premises and date_col:
             df_filtered['unique_premise_id'] = df_filtered[date_col].dt.date.astype(str) + "_" + df_filtered[col_premises].apply(normalize_string)
             agg_dict = {'pos_house_calc': 'max', 'pos_cont_calc': 'sum', 'wet_cont_calc': 'sum', 'dry_cont_calc': 'sum'}
+            
             if date_col: agg_dict[date_col] = 'first'
             for c in [col_zone, col_lat, col_lon, col_premises, col_username]:
                 if c and c in df_filtered.columns: agg_dict[c] = 'first'
@@ -464,8 +350,13 @@ def render_dashboard(selected_key):
             bi_val = (df_filtered['pos_cont_calc'].sum() / display_count * 100)
         df_for_graphs = df_filtered.copy()
 
+    # --- TOP METRICS ROW ---
+    label_hi = "Premises Index (PI)" if selected_key == 'intra' else "House Index (HI)"
+    label_entries = "Unique Premises" if selected_key == 'intra' else "Total Entries"
+    total_pos_containers = int(df_filtered['pos_cont_calc'].sum())
+    
     m1, m2, m3, m4, m5, m6 = st.columns(6)
-    m1.metric(label_hi, display_count)
+    m1.metric(label_entries, display_count)
     m2.metric("Positive Found", positive_count)
     m3.metric("Total Positive Containers", total_pos_containers)
     m4.metric(label_hi, f"{hi_val:.2f}")
@@ -474,7 +365,10 @@ def render_dashboard(selected_key):
 
     st.divider()
 
+    # --- EXTENDED GRAPHS SECTION (COLLAPSIBLE) ---
     with st.expander("📊 Graphical Analysis (Click to Expand)", expanded=False):
+        
+        # --- DYNAMIC TAB DEFINITION ---
         active_tab_labels = ["📈 Trend Analysis", "🌍 Zone Stats"]
         if selected_key == 'peri':
             active_tab_labels.extend(["🏘️ Subzone Stats", "🛣️ Street Stats"])
@@ -501,6 +395,7 @@ def render_dashboard(selected_key):
 
         def render_standard_charts(group_col, title_prefix, tab_label):
             if tab_label not in current_tab_map: return
+            
             with graph_tabs[current_tab_map[tab_label]]:
                 if group_col not in df_for_graphs.columns:
                     st.warning(f"Column for {title_prefix} not found.")
@@ -516,7 +411,9 @@ def render_dashboard(selected_key):
                 g['CI'] = (g['pos_cont_calc'] / g['wet_cont_calc'].replace(0, 1) * 100).fillna(0)
                 g['BI'] = (g['pos_cont_calc'] / g['Total Entries'] * 100).fillna(0)
                 g = g.reset_index().sort_values('HI', ascending=False)
-                if len(g) > 20: g = g.head(20)
+                if len(g) > 20:
+                    st.caption(f"Showing Top 20 {title_prefix}s by Activity")
+                    g = g.head(20)
 
                 c1, c2 = st.columns(2)
                 c1.plotly_chart(plot_metric_bar(g, group_col, 'HI', f"{label_hi} by {title_prefix}", 'HI', 20), use_container_width=True)
@@ -531,15 +428,20 @@ def render_dashboard(selected_key):
         
         if "🏢 Premises Stats" in current_tab_map:
             with graph_tabs[current_tab_map['🏢 Premises Stats']]:
-                # --- FIX 2: Added requested Intra Premises Graphs ---
-                st.subheader("Premises Level Analysis")
-                if col_premises in df_for_graphs.columns:
-                    # Reuse the standard chart renderer for Premises, passing the correct column
-                    render_standard_charts(col_premises, "Premise", "🏢 Premises Stats")
+                st.subheader("Daily Activity Analysis")
+                if date_col and date_col in df_for_graphs.columns and 'unique_premise_id' in df_for_graphs.columns:
+                    daily_prem = df_for_graphs.groupby(date_col)['unique_premise_id'].nunique().reset_index()
+                    daily_prem.columns = ['Date', 'Unique Premises']
+                    fig_daily = px.bar(daily_prem, x='Date', y='Unique Premises', title="Total Unique Premises Checked per Day")
+                    st.plotly_chart(fig_daily, use_container_width=True)
                 else:
-                    st.warning("Premises data not available for graphing.")
+                    st.warning("Daily data or Unique Premises ID missing for this graph.")
+                
+                if col_premises in df_for_graphs.columns:
+                    st.divider()
+                    render_standard_charts(col_premises, "Premise", "Premise Stats Placeholder")
 
-
+    # --- MAP (COLLAPSIBLE) ---
     with st.expander("🌍 Geo-Spatial Map (Click to Expand)", expanded=False):
         if col_lat in df_for_graphs.columns and col_lon in df_for_graphs.columns:
             map_df = df_for_graphs.dropna(subset=[col_lat, col_lon]).copy()
@@ -550,101 +452,114 @@ def render_dashboard(selected_key):
                     folium.CircleMarker([row[col_lat], row[col_lon]], radius=6, color=color, fill=True, fill_color=color).add_to(m)
                 st_folium(m, height=400)
 
-    if current_config.get('id_url'):
-        with st.expander("🔬 Larvae Identification Data (Click to Expand)", expanded=False):
-            df_id = load_kobo_data(current_config['id_url'])
-            if not df_id.empty:
-                # 1. Define Clean Targets
-                COL_GENUS = "Select the Genus:".strip()
-                COL_SPECIES = "Select the Species:".strip()
-                COL_CONTAINER_LABEL = "Type of container in which the sample was collected from".strip() 
-                COL_SUBMITTED = "_submitted_by".strip()
+    # --- LARVAE ID TABLE (COLLAPSIBLE) ---
+    with st.expander("🔬 Larvae Identification Data (Click to Expand)", expanded=False):
+        df_id = load_kobo_data(current_config['id_url'])
+        
+        # --- DEBUG EXPANDER ---
+        with st.expander("🛠️ Debug: View Data Headers"):
+            st.write("Here are the exact column names in your data:")
+            st.write(df_id.columns.tolist())
+        # ---------------------
 
-                clean_to_orig_map = {col.strip(): col for col in df_id.columns}
-                col_genus = clean_to_orig_map.get(COL_GENUS)
-                col_species = clean_to_orig_map.get(COL_SPECIES)
-                col_container = clean_to_orig_map.get(COL_CONTAINER_LABEL)
-                col_submitted = clean_to_orig_map.get(COL_SUBMITTED)
-                
-                if not col_container:
-                    FALLBACK_KEY = "Type of container the sample was collected from".strip() 
-                    col_container = clean_to_orig_map.get(FALLBACK_KEY)
+        if not df_id.empty:
+            # 1. Define Clean Targets
+            COL_GENUS = "Select the Genus:".strip()
+            COL_SPECIES = "Select the Species:".strip()
+            COL_CONTAINER_LABEL = "Type of container in which the sample was collected from".strip() # Target (Cleaned)
+            COL_SUBMITTED = "_submitted_by".strip()
 
-                col_map_id = {c.lower(): c for c in df_id.columns}
-                date_col_id = next((c for c in df_id.columns if c in ['Date', 'today', 'date']), None)
-                addr_cols = ['address', 'location', 'premise', 'premises', 'streetname']
-                col_address_id = next((col_map_id.get(k) for k in addr_cols if col_map_id.get(k)), 'N/A')
-                img_search = ["Attach the microscopic image of the larva _URL", "Attach the microscopic image of the larva_URL", "image_url", "url"]
-                col_img = next((c for c in img_search if c in df_id.columns), None)
-                
-                if date_col_id: df_id[date_col_id] = pd.to_datetime(df_id[date_col_id])
-                df_display = pd.DataFrame()
-                df_display['Date'] = df_id[date_col_id].dt.date if date_col_id else 'N/A'
-                df_display['Address'] = df_id[col_address_id] if col_address_id != 'N/A' else 'N/A'
-                df_display['Genus'] = df_id[col_genus] if col_genus else 'N/A'
-                df_display['Species'] = df_id[col_species] if col_species else 'N/A'
-                
-                if col_img:
-                    df_display['Thumbnail'] = df_id[col_img].apply(get_thumbnail_url)
-                    df_id['Original_Image_URL'] = df_id[col_img]
-                else:
-                    df_display['Thumbnail'] = None
-                    df_id['Original_Image_URL'] = None
+            # 2. Find Actual Column Names (Robust Search - strips all spaces from headers)
+            # Create a dictionary mapping the cleaned header (key) to the original header (value)
+            clean_to_orig_map = {col.strip(): col for col in df_id.columns}
 
-                df_display = df_display.reset_index(drop=True)
-                df_display.index += 1
-                df_display.index.name = "S.No"
-                df_display = df_display.reset_index()
-                df_id['Calculated_Address'] = df_display['Address']
-                
-                st.info("💡 Click on a row to view full details and image.")
-                
-                event = st.dataframe(
-                    df_display,
-                    column_order=["S.No", "Date", "Address", "Thumbnail", "Genus", "Species"],
-                    column_config={"Thumbnail": st.column_config.ImageColumn("Microscopic Image", width="small")},
-                    hide_index=True, use_container_width=True, on_select="rerun", selection_mode="single-row"
-                )
+            col_genus = clean_to_orig_map.get(COL_GENUS)
+            col_species = clean_to_orig_map.get(COL_SPECIES)
+            col_container = clean_to_orig_map.get(COL_CONTAINER_LABEL)
+            col_submitted = clean_to_orig_map.get(COL_SUBMITTED)
+            
+            # --- FALLBACK CHECK for common variations in Peri data ---
+            if not col_container:
+                FALLBACK_KEY = "Type of container the sample was collected from".strip() # Shorter label?
+                col_container = clean_to_orig_map.get(FALLBACK_KEY)
+            # --------------------------------------
 
-                if len(event.selection.rows) > 0:
-                    selected_index = event.selection.rows[0]
-                    original_row = df_id.iloc[selected_index]
-                    show_image_popup(original_row)
-
-                st.divider()
-                
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    if col_genus:
-                        st.write("#### Genus")
-                        genus_counts = df_id[col_genus].value_counts().reset_index()
-                        genus_counts.columns = ['Genus', 'Count']
-                        fig_g = px.pie(genus_counts, values='Count', names='Genus', hole=0.4)
-                        st.plotly_chart(fig_g, use_container_width=True)
-                    else: st.info("Genus data missing")
-
-                with c2:
-                    if col_container:
-                        st.write("#### Container")
-                        cont_data = df_id[col_container].dropna()
-                        cont_counts = cont_data.value_counts().reset_index()
-                        cont_counts.columns = ['Container', 'Count']
-                        fig_c = px.pie(cont_counts, values='Count', names='Container', hole=0.4)
-                        st.plotly_chart(fig_c, use_container_width=True)
-                    else: st.warning(f"Container data missing.")
-
-                with c3:
-                    if col_submitted:
-                        st.write("#### Submitted By")
-                        user_counts = df_id[col_submitted].value_counts().reset_index()
-                        user_counts.columns = ['User', 'Count']
-                        fig_u = px.pie(user_counts, values='Count', names='User', hole=0.4)
-                        st.plotly_chart(fig_u, use_container_width=True)
-                    else: st.info("User data missing")
-
+            col_map_id = {c.lower(): c for c in df_id.columns}
+            date_col_id = next((c for c in df_id.columns if c in ['Date', 'today', 'date']), None)
+            addr_cols = ['address', 'location', 'premise', 'premises', 'streetname']
+            col_address_id = next((col_map_id.get(k) for k in addr_cols if col_map_id.get(k)), 'N/A')
+            img_search = ["Attach the microscopic image of the larva _URL", "Attach the microscopic image of the larva_URL", "image_url", "url"]
+            col_img = next((c for c in img_search if c in df_id.columns), None)
+            
+            if date_col_id: df_id[date_col_id] = pd.to_datetime(df_id[date_col_id])
+            df_display = pd.DataFrame()
+            df_display['Date'] = df_id[date_col_id].dt.date if date_col_id else 'N/A'
+            df_display['Address'] = df_id[col_address_id] if col_address_id != 'N/A' else 'N/A'
+            df_display['Genus'] = df_id[col_genus] if col_genus else 'N/A'
+            df_display['Species'] = df_id[col_species] if col_species else 'N/A'
+            
+            if col_img:
+                df_display['Thumbnail'] = df_id[col_img].apply(get_thumbnail_url)
+                df_id['Original_Image_URL'] = df_id[col_img]
             else:
-                st.info("No identification data available.")
+                df_display['Thumbnail'] = None
+                df_id['Original_Image_URL'] = None
 
+            df_display = df_display.reset_index(drop=True)
+            df_display.index += 1
+            df_display.index.name = "S.No"
+            df_display = df_display.reset_index()
+            df_id['Calculated_Address'] = df_display['Address']
+            
+            st.info("💡 Click on a row to view full details and image.")
+            
+            event = st.dataframe(
+                df_display,
+                column_order=["S.No", "Date", "Address", "Thumbnail", "Genus", "Species"],
+                column_config={"Thumbnail": st.column_config.ImageColumn("Microscopic Image", width="small")},
+                hide_index=True, use_container_width=True, on_select="rerun", selection_mode="single-row"
+            )
+
+            if len(event.selection.rows) > 0:
+                selected_index = event.selection.rows[0]
+                original_row = df_id.iloc[selected_index]
+                show_image_popup(original_row)
+
+            st.divider()
+            
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                if col_genus:
+                    st.write("#### Genus")
+                    genus_counts = df_id[col_genus].value_counts().reset_index()
+                    genus_counts.columns = ['Genus', 'Count']
+                    fig_g = px.pie(genus_counts, values='Count', names='Genus', hole=0.4)
+                    st.plotly_chart(fig_g, use_container_width=True)
+                else: st.info("Genus data missing")
+
+            with c2:
+                if col_container:
+                    st.write("#### Container")
+                    cont_data = df_id[col_container].dropna()
+                    cont_counts = cont_data.value_counts().reset_index()
+                    cont_counts.columns = ['Container', 'Count']
+                    fig_c = px.pie(cont_counts, values='Count', names='Container', hole=0.4)
+                    st.plotly_chart(fig_c, use_container_width=True)
+                else: st.warning(f"Container data missing. Could not find column: '{COL_CONTAINER_LABEL}'")
+
+            with c3:
+                if col_submitted:
+                    st.write("#### Submitted By")
+                    user_counts = df_id[col_submitted].value_counts().reset_index()
+                    user_counts.columns = ['User', 'Count']
+                    fig_u = px.pie(user_counts, values='Count', names='User', hole=0.4)
+                    st.plotly_chart(fig_u, use_container_width=True)
+                else: st.info("User data missing")
+
+        else:
+            st.info("No identification data available.")
+
+    # --- STAFF PERFORMANCE REPORT (COLLAPSIBLE) ---
     with st.expander("👮 Staff Performance Report (Click to Expand)", expanded=False):
         if col_username in df_filtered.columns:
             staff_group = df_filtered.groupby(col_username)
@@ -670,9 +585,10 @@ def render_dashboard(selected_key):
             
             staff_final = staff_perf[[c for c in final_cols_staff if c in staff_perf.columns]]
             st.dataframe(staff_final, use_container_width=True)
-            st.download_button("Download Staff Excel", to_excel(staff_final), "Staff_Performance.xlsx", key=f"staff_excel_download_{selected_key}")
+            st.download_button("Download Staff Excel", to_excel(staff_final), "Staff_Performance.xlsx")
         else: st.warning("Username column not found.")
 
+    # --- MONTHLY & FORTNIGHTLY REPORTS (COLLAPSIBLE) ---
     c_month, c_fort = st.columns(2)
     with c_month:
         with st.expander("📅 Monthly Report (Click to Expand)", expanded=False):
@@ -683,12 +599,12 @@ def render_dashboard(selected_key):
                     df_rep_raw[col] = pd.to_numeric(df_rep_raw[raw_col], errors='coerce').fillna(0) if raw_col in df_rep_raw.columns else 0
                 df_rep_raw['dry_cont_calc'] = pd.to_numeric(df_rep_raw[col_dry_cont_raw], errors='coerce').fillna(0) if col_dry_cont_raw in df_rep_raw.columns else 0
                 df_rep_raw['Month_Year'] = df_rep_raw[date_col].dt.strftime('%Y-%m')
-                sel_mon = st.selectbox("Select Month:", sorted(df_rep_raw['Month_Year'].unique(), reverse=True), key=f"monthly_select_{selected_key}")
+                sel_mon = st.selectbox("Select Month:", sorted(df_rep_raw['Month_Year'].unique(), reverse=True))
                 if sel_mon:
                     df_m = df_rep_raw[df_rep_raw['Month_Year'] == sel_mon].copy()
                     rep_df = generate_report_df(df_m, date_col, col_username, selected_key, col_premises, col_subzone, col_street, current_config)
                     st.dataframe(rep_df, hide_index=True)
-                    st.download_button("Download Excel", to_excel(rep_df), "Monthly.xlsx", key=f"monthly_download_{selected_key}")
+                    st.download_button("Download Excel", to_excel(rep_df), "Monthly.xlsx")
 
     with c_fort:
         with st.expander("📆 Fortnight Report (Click to Expand)", expanded=False):
@@ -702,40 +618,56 @@ def render_dashboard(selected_key):
                 df_ft['Month_Str'] = df_ft[date_col].dt.strftime('%B %Y')
                 df_ft['Label'] = df_ft.apply(lambda x: f"First Half {x['Month_Str']}" if x[date_col].day <= 15 else f"Second Half {x['Month_Str']}", axis=1)
                 df_ft = df_ft.sort_values(by=date_col, ascending=False)
-                sel_ft = st.selectbox("Select Fortnight:", df_ft['Label'].unique(), key=f"fortnight_select_{selected_key}")
+                sel_ft = st.selectbox("Select Fortnight:", df_ft['Label'].unique())
                 if sel_ft:
                     df_sft = df_ft[df_ft['Label'] == sel_ft].copy()
                     ft_rep = generate_report_df(df_sft, date_col, col_username, selected_key, col_premises, col_subzone, col_street, current_config)
                     st.dataframe(ft_rep, hide_index=True)
-                    st.download_button("Download Excel", to_excel(ft_rep), "Fortnightly.xlsx", key=f"fortnight_download_{selected_key}")
+                    st.download_button("Download Excel", to_excel(ft_rep), "Fortnightly.xlsx")
 
+    # --- EXECUTIVE SUMMARY (ALWAYS OPEN) ---
     st.divider()
     summary_text = generate_narrative_summary(df_filtered, selected_key, date_col, col_street, col_subzone, col_premises)
     st.markdown(summary_text)
 
+# --- HOME PAGE LOGIC ---
 def render_home_page():
-    st.markdown("""
+    try:
+        bin_str = get_base64_of_bin_file("logo.png")
+        page_bg_img = f"""
         <style>
-        .stApp {
-            background-image: none !important;
-            background-color: white !important;
-        }
-        .main .block-container { 
-            background-color: transparent !important; 
-            border-radius: 0px !important;
-            box-shadow: none !important;
-        }
+        .stApp {{
+            background-image: url("data:image/png;base64,{bin_str}");
+            background-size: cover;
+            background-position: center center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+        }}
+        .block-container {{
+            background-color: rgba(255, 255, 255, 0.90);
+            border-radius: 20px;
+            padding: 2rem;
+            max-width: 800px;
+            margin: auto;
+            margin-top: 45vh; 
+        }}
         </style>
-    """, unsafe_allow_html=True)
+        """
+        st.markdown(page_bg_img, unsafe_allow_html=True)
+    except:
+        st.warning("Background image 'logo.png' not found on GitHub.")
+
+    is_authenticated = check_password_on_home()
     
-    st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>AIRPORT HEALTH ORGANISATION</h1>", unsafe_allow_html=True)
-    st.markdown("<h3 style='text-align: center; color: #1E3A8A;'>TIRUCHIRAPPALLI INTERNATIONAL AIRPORT</h3>", unsafe_allow_html=True)
-    st.divider()
-    
-    if st.session_state.get('page') not in ['peri', 'intra', 'flights', 'anti_larval']:
-        st.header("Select Activity Section")
-        col1, col2 = st.columns(2)
-        with col1:
+    if is_authenticated:
+        st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>AIRPORT HEALTH ORGANISATION</h1>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align: center; color: #1E3A8A;'>TIRUCHIRAPPALLI INTERNATIONAL AIRPORT</h3>", unsafe_allow_html=True)
+        
+        st.divider()
+        
+        _, col_buttons, _ = st.columns([1, 2, 1])
+        with col_buttons:
+            st.markdown("<br>", unsafe_allow_html=True)
             if st.button("🦟 Outside Field Activities (Peri)", use_container_width=True, type="primary"):
                 st.session_state['page'] = 'peri'
                 st.rerun()
@@ -743,22 +675,16 @@ def render_home_page():
             if st.button("✈️ Inside Field Activities (Intra)", use_container_width=True, type="primary"):
                 st.session_state['page'] = 'intra'
                 st.rerun()
-        with col2:
-            if st.button("✈️ International Flights Screening", use_container_width=True, type="primary"):
-                st.session_state['page'] = 'flights'
-                st.rerun()
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("🛡️ Anti-Larval Action Reports", use_container_width=True, type="primary"):
-                st.session_state['page'] = 'anti_larval'
-                st.rerun()
-                
-    else:
-        if st.sidebar.button("🏠 Back to Home", key="back_to_home_button"):
-            st.session_state['page'] = 'home'
-            st.rerun()
-        render_dashboard(st.session_state['page'])
 
+# --- APP ENTRY POINT ---
 if 'page' not in st.session_state:
     st.session_state['page'] = 'home'
 
-render_home_page()
+if st.session_state['page'] == 'home':
+    render_home_page()
+else:
+    if st.session_state.get("password_correct", False):
+        render_dashboard(st.session_state['page'])
+    else:
+        st.session_state['page'] = 'home'
+        st.rerun()
