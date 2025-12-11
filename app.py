@@ -15,10 +15,6 @@ import datetime
 # --- 1. SETUP PAGE CONFIGURATION ---
 st.set_page_config(page_title="APHO Tiruchirappalli Dashboard", layout="wide")
 
-# --- INITIALIZE SESSION STATE FOR REPORTS ---
-if 'reports' not in st.session_state:
-    st.session_state['reports'] = []
-
 # --- STAFF NAME MAPPING ---
 STAFF_NAMES = {
     'abhiguptak': 'Abhishek Gupta', 'arunhealthinspector': 'Arun', 'chandru1426': 'Chandru',
@@ -47,7 +43,8 @@ SECTION_CONFIG = {
     },
     'anti_larval': {
         'title': 'Anti-Larval Action Reports',
-        'surv_url': None,
+        # Updated URL for Action Reports
+        'surv_url': 'https://kf.kobotoolbox.org/api/v2/assets/az3jC73Chq5yPKMhM73eMm/export-settings/estGM8ZLCov9aQTaMdBNuNV/data.csv',
         'id_url': None
     }
 }
@@ -134,37 +131,6 @@ def get_pdf_bytes(filename):
             return f.read()
     except FileNotFoundError:
         return None
-
-# --- NEW: ANTI-LARVAL REPORT MODAL ---
-@st.dialog("➕ Add New Action Report")
-def show_add_report_dialog():
-    with st.form("add_action_report_form"):
-        st.write("Enter details for the monthly Anti-Larval Action Report.")
-        
-        c1, c2 = st.columns(2)
-        with c1:
-            report_month = st.selectbox("Month", ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"])
-        with c2:
-            report_year = st.number_input("Year", min_value=2020, max_value=2030, value=datetime.date.today().year)
-            
-        summary = st.text_area("Summary of Actions Taken", height=150, placeholder="Describe measures taken, areas covered, chemicals used, etc.")
-        uploaded_file = st.file_uploader("Upload Action Report (PDF)", type=['pdf'])
-        
-        submitted = st.form_submit_button("Submit Report")
-        
-        if submitted:
-            # Create a dictionary for the new report
-            new_report = {
-                "Month": report_month,
-                "Year": report_year,
-                "Summary": summary,
-                "File Name": uploaded_file.name if uploaded_file else "No File",
-                "Uploaded At": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-            }
-            # Append to session state so it persists
-            st.session_state['reports'].append(new_report)
-            st.success("Report submitted successfully!")
-            st.rerun()
 
 # --- GLOBAL REPORT FUNCTION ---
 def generate_report_df(df_source, date_col, col_username, selected_key, col_premises, col_subzone, col_street, current_config):
@@ -303,22 +269,38 @@ def render_dashboard(selected_key):
 
     # --- ANTI-LARVAL ACTION REPORTS (New Section) ---
     if selected_key == 'anti_larval':
-        st.markdown("### Monthly Action Reports Repository")
-        
-        c1, c2 = st.columns([3, 1])
-        with c2:
-            if st.button("➕ Add New Report", use_container_width=True):
-                show_add_report_dialog()
-        
-        # Display table of reports from Session State
-        if st.session_state['reports']:
-            report_df = pd.DataFrame(st.session_state['reports'])
-            # Reorder columns for better view
-            cols = ['Month', 'Year', 'Summary', 'File Name', 'Uploaded At']
-            st.dataframe(report_df[cols], use_container_width=True)
-        else:
-            st.info("No reports have been uploaded yet.")
+        # Load data from the provided Kobo URL
+        with st.spinner("Fetching Action Reports..."):
+            df_reports = load_kobo_data(current_config['surv_url'])
+
+        if not df_reports.empty:
+            # Look for the PDF column
+            pdf_col = "upload_action_taken_report_pd"
             
+            # Simple dataframe for display
+            display_df = df_reports.copy()
+            
+            # Identify columns to display - try to find Date, Month, Year if possible, otherwise show all
+            cols_to_show = [c for c in display_df.columns if c not in ['_id', '_uuid', '_submission_time', '_index', '_parent_index', 'start', 'end', 'username', 'deviceid']]
+            
+            # If the PDF column exists, format it as a link
+            if pdf_col in display_df.columns:
+                # Kobo stores file URLs; we can just display the raw URL or try to make it a link if Streamlit supports it easily in dataframe
+                # For better UX, let's create a clickable column using Streamlit's LinkColumn config
+                
+                st.dataframe(
+                    display_df[cols_to_show],
+                    column_config={
+                        pdf_col: st.column_config.LinkColumn("Download Report", display_text="Open PDF")
+                    },
+                    use_container_width=True
+                )
+            else:
+                st.dataframe(display_df[cols_to_show], use_container_width=True)
+                st.warning(f"Column '{pdf_col}' not found in the dataset.")
+        else:
+            st.info("No reports available to display.")
+        
         st.stop()
     # -----------------------------------------------
 
