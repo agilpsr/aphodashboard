@@ -357,7 +357,6 @@ def render_dashboard(selected_key):
         with graph_tabs[4]:
             if selected_key == 'intra':
                 st.subheader("Daily Activity Analysis")
-                # Safety check for date_col before grouping
                 if date_col and date_col in df_for_graphs.columns and 'unique_premise_id' in df_for_graphs.columns:
                     daily_prem = df_for_graphs.groupby(date_col)['unique_premise_id'].nunique().reset_index()
                     daily_prem.columns = ['Date', 'Unique Premises']
@@ -393,6 +392,8 @@ def render_dashboard(selected_key):
             col_address_id = next((col_map_id.get(k) for k in addr_cols if col_map_id.get(k)), 'N/A')
             img_search = ["Attach the microscopic image of the larva _URL", "Attach the microscopic image of the larva_URL", "image_url", "url"]
             col_img = next((c for c in img_search if c in df_id.columns), None)
+            
+            # Key Columns
             col_genus = "Select the Genus:"
             col_species = "Select the Species:"
             col_container = "Type of container the sample was collected from"
@@ -430,20 +431,40 @@ def render_dashboard(selected_key):
                 show_image_popup(original_row)
 
             st.divider()
-            c1, c2 = st.columns(2)
-            if col_genus in df_id.columns:
-                c1.write("#### Genus Distribution")
-                genus_counts = df_id[col_genus].value_counts().reset_index()
-                genus_counts.columns = ['Genus', 'Count']
-                fig_g = px.pie(genus_counts, values='Count', names='Genus', hole=0.4)
-                c1.plotly_chart(fig_g, use_container_width=True)
-            if col_container in df_id.columns:
-                c2.write("#### Container Distribution")
-                cont_data = df_id[df_id[col_container].notna() & (df_id[col_container] != "")]
-                cont_counts = cont_data[col_container].value_counts().reset_index()
-                cont_counts.columns = ['Container Type', 'Count']
-                fig_c = px.pie(cont_counts, values='Count', names='Container Type', hole=0.4)
-                c2.plotly_chart(fig_c, use_container_width=True)
+            
+            # --- 3 PIE CHARTS (GENUS, SPECIES, CONTAINER) ---
+            c1, c2, c3 = st.columns(3)
+            
+            # Chart 1: Genus
+            with c1:
+                if col_genus in df_id.columns:
+                    st.write("#### Genus")
+                    genus_counts = df_id[col_genus].value_counts().reset_index()
+                    genus_counts.columns = ['Genus', 'Count']
+                    fig_g = px.pie(genus_counts, values='Count', names='Genus', hole=0.4)
+                    st.plotly_chart(fig_g, use_container_width=True)
+                else: st.info("Genus data missing")
+
+            # Chart 2: Species
+            with c2:
+                if col_species in df_id.columns:
+                    st.write("#### Species")
+                    spec_counts = df_id[col_species].value_counts().reset_index()
+                    spec_counts.columns = ['Species', 'Count']
+                    fig_s = px.pie(spec_counts, values='Count', names='Species', hole=0.4)
+                    st.plotly_chart(fig_s, use_container_width=True)
+                else: st.info("Species data missing")
+
+            # Chart 3: Container
+            with c3:
+                if col_container in df_id.columns:
+                    st.write("#### Container")
+                    cont_data = df_id[df_id[col_container].notna() & (df_id[col_container] != "")]
+                    cont_counts = cont_data[col_container].value_counts().reset_index()
+                    cont_counts.columns = ['Container', 'Count']
+                    fig_c = px.pie(cont_counts, values='Count', names='Container', hole=0.4)
+                    st.plotly_chart(fig_c, use_container_width=True)
+                else: st.info("Container data missing")
         else:
             st.info("No identification data available.")
 
@@ -578,10 +599,10 @@ def render_dashboard(selected_key):
                     st.dataframe(ft_rep, hide_index=True)
                     st.download_button("Download Excel", to_excel(ft_rep), "Fortnightly.xlsx")
 
-    # --- EXECUTIVE SUMMARY (COLLAPSIBLE) ---
-    with st.expander("📝 Executive Summary (Click to Expand)", expanded=False):
-        summary_text = generate_narrative_summary(df_filtered, selected_key, date_col, col_street, col_subzone, col_premises)
-        st.markdown(summary_text)
+    # --- EXECUTIVE SUMMARY (ALWAYS OPEN) ---
+    st.divider()
+    summary_text = generate_narrative_summary(df_filtered, selected_key, date_col, col_street, col_subzone, col_premises)
+    st.markdown(summary_text)
 
 # --- HOME PAGE LOGIC ---
 def render_home_page():
