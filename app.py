@@ -15,6 +15,10 @@ import datetime
 # --- 1. SETUP PAGE CONFIGURATION ---
 st.set_page_config(page_title="APHO Tiruchirappalli Dashboard", layout="wide")
 
+# --- INITIALIZE SESSION STATE FOR REPORTS ---
+if 'reports' not in st.session_state:
+    st.session_state['reports'] = []
+
 # --- STAFF NAME MAPPING ---
 STAFF_NAMES = {
     'abhiguptak': 'Abhishek Gupta', 'arunhealthinspector': 'Arun', 'chandru1426': 'Chandru',
@@ -44,6 +48,11 @@ SECTION_CONFIG = {
     'anti_larval': {
         'title': 'Anti-Larval Action Reports',
         'surv_url': 'https://kf.kobotoolbox.org/api/v2/assets/az3jC73Chq5yPKMhM73eMm/export-settings/esJCVJu8sXKCxUfywczgC4x/data.csv',
+        'id_url': None
+    },
+    'sanitary': {
+        'title': 'Sanitary & Toilet Inspection Reports',
+        'surv_url': 'https://kf.kobotoolbox.org/api/v2/assets/aCn73Fp8jaAPz3TcG5Y3jJ/export-settings/esBxawoybCQnoWtYJ5mbsEw/data.csv',
         'id_url': None
     }
 }
@@ -266,55 +275,58 @@ def render_dashboard(selected_key):
     current_config = SECTION_CONFIG[selected_key]
     st.title(current_config['title'])
 
-    # --- ANTI-LARVAL ACTION REPORTS (Dynamic Data Source) ---
-    if selected_key == 'anti_larval':
-        with st.spinner('Fetching Action Reports...'):
+    # --- ACTION REPORTS & SANITARY REPORTS LOGIC (Dynamic Data Source) ---
+    if selected_key in ['anti_larval', 'sanitary']:
+        with st.spinner('Fetching Reports...'):
             df_action = load_kobo_data(current_config['surv_url'])
             
         if df_action.empty:
             st.info("No reports found.")
             st.stop()
             
-        st.subheader("Monthly Action Reports Repository")
+        st.subheader("Reports Repository")
         
-        # 1. Identify the URL column using robust matching
+        # Determine Columns Config based on section
+        column_config = {}
         clean_cols = {c.strip().lower(): c for c in df_action.columns}
-        # The key mentioned was: "upload action taken report (pdf) _URL"
-        # Note: Kobo sometimes adds group names or changes spaces to underscores.
-        # We try strict match first, then fuzzy.
-        target_key = "upload action taken report (pdf) _url"
-        pdf_col = clean_cols.get(target_key)
         
-        if not pdf_col:
-             # Fuzzy search: look for 'pdf' AND 'url' in the same header
-             pdf_col = next((c for c in df_action.columns if 'pdf' in c.lower() and 'url' in c.lower()), None)
-
-        if pdf_col:
-            # We use Streamlit's column configuration to make this a clickable link
-            # We'll rename it to "Download Report" for the view
+        if selected_key == 'anti_larval':
+            # Single PDF column logic
+            target_key = "upload action taken report (pdf) _url"
+            pdf_col = clean_cols.get(target_key)
+            if not pdf_col:
+                 pdf_col = next((c for c in df_action.columns if 'pdf' in c.lower() and 'url' in c.lower()), None)
             
-            # Filter out Kobo system columns for a cleaner view
-            system_cols = ['start', 'end', '_id', '_uuid', '_submission_time', '_validation_status', '_notes', '_status', '_submitted_by', '__version__', '_tags', '_index']
-            display_cols = [c for c in df_action.columns if c not in system_cols]
-            
-            # Ensure the PDF col is in the display list
-            if pdf_col not in display_cols:
-                display_cols.append(pdf_col)
+            if pdf_col:
+                column_config[pdf_col] = st.column_config.LinkColumn("Action Report", display_text="📥 Download PDF")
 
-            st.dataframe(
-                df_action[display_cols],
-                column_config={
-                    pdf_col: st.column_config.LinkColumn(
-                        "Download Report",
-                        display_text="📥 Download PDF"
-                    )
-                },
-                use_container_width=True,
-                hide_index=True
-            )
-        else:
-            st.warning("Could not identify the PDF URL column automatically. Displaying raw data.")
-            st.dataframe(df_action, use_container_width=True)
+        elif selected_key == 'sanitary':
+            # Dual PDF column logic (Sanitary + Toilet)
+            target_sanitary = "upload sanitary inspection report (pdf) _url"
+            target_toilet = "upload toilet inspection report(pdf) _url"
+            
+            # Robust lookup
+            sanitary_col = clean_cols.get(target_sanitary)
+            if not sanitary_col: sanitary_col = next((c for c in df_action.columns if 'sanitary' in c.lower() and 'url' in c.lower()), None)
+            
+            toilet_col = clean_cols.get(target_toilet)
+            if not toilet_col: toilet_col = next((c for c in df_action.columns if 'toilet' in c.lower() and 'url' in c.lower()), None)
+            
+            if sanitary_col:
+                column_config[sanitary_col] = st.column_config.LinkColumn("Sanitary Report", display_text="📥 Download Sanitary")
+            if toilet_col:
+                column_config[toilet_col] = st.column_config.LinkColumn("Toilet Report", display_text="📥 Download Toilet")
+
+        # Hide system columns
+        system_cols = ['start', 'end', '_id', '_uuid', '_submission_time', '_validation_status', '_notes', '_status', '_submitted_by', '__version__', '_tags', '_index']
+        display_cols = [c for c in df_action.columns if c not in system_cols]
+        
+        st.dataframe(
+            df_action[display_cols],
+            column_config=column_config,
+            use_container_width=True,
+            hide_index=True
+        )
         
         st.stop()
     # -----------------------------------------------
@@ -382,7 +394,6 @@ def render_dashboard(selected_key):
 
     # --- FLIGHTS SCREENING SUMMARY (Special Case) ---
     if selected_key == 'flights':
-        
         clean_cols = {c.strip().lower(): c for c in df.columns}
         staff1_col = clean_cols.get("flight_duty_personnel") 
         staff2_col = clean_cols.get("deputy")
@@ -749,7 +760,7 @@ def render_home_page():
     st.markdown("<h3 style='text-align: center; color: #1E3A8A;'>TIRUCHIRAPPALLI INTERNATIONAL AIRPORT</h3>", unsafe_allow_html=True)
     st.divider()
     
-    if st.session_state.get('page') not in ['peri', 'intra', 'flights', 'anti_larval']:
+    if st.session_state.get('page') not in ['peri', 'intra', 'flights', 'anti_larval', 'sanitary']:
         st.header("Select Activity Section")
         col1, col2 = st.columns(2)
         with col1:
@@ -759,6 +770,10 @@ def render_home_page():
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("✈️ Inside Field Activities (Intra)", use_container_width=True, type="primary"):
                 st.session_state['page'] = 'intra'
+                st.rerun()
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🧹 Sanitary & Toilet Inspection Reports", use_container_width=True, type="primary"):
+                st.session_state['page'] = 'sanitary'
                 st.rerun()
         with col2:
             if st.button("✈️ International Flights Screening", use_container_width=True, type="primary"):
