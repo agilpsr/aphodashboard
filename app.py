@@ -37,7 +37,6 @@ SECTION_CONFIG = {
     },
     'flights': {
         'title': 'International Flights Screened',
-        # --- FIX 1: Updated URL for International Flights Screened Data ---
         'surv_url': 'https://kf.kobotoolbox.org/api/v2/assets/aHdVBAGwFvJwpTaATAZN8v/export-settings/esFbR4cbEQXToCUwLfFGbV4/data.csv',
         'id_url': None
     }
@@ -112,10 +111,7 @@ def show_image_popup(row_data):
     else:
         st.warning("⚠️ No image URL found.")
 
-def get_base64_of_bin_file(bin_file):
-    with open(bin_file, 'rb') as f:
-        data = f.read()
-    return base64.b64encode(data).decode()
+# Removed def get_base64_of_bin_file(bin_file):
 
 # --- FILE HANDLERS ---
 def get_pdf_bytes(filename):
@@ -251,38 +247,12 @@ def generate_narrative_summary(df, selected_key, date_col, col_street, col_subzo
     return "\n\n".join(narrative)
 
 # --- PASSWORD FUNCTION ---
-# NOTE: This function remains as a structural placeholder but is not called in the entry point.
 def check_password_on_home():
-    def password_entered():
-        # FIX: Added defensive check to prevent KeyError
-        if "password" in st.session_state and st.session_state["password"] == "Aphotrz@2025":
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]
-        else:
-            st.session_state["password_correct"] = False
-    
-    if st.session_state.get("password_correct", False): return True
-    
-    st.text_input("🔒 Enter Password to Login", type="password", on_change=password_entered, key="password")
-    if "password_correct" in st.session_state and not st.session_state["password_correct"]:
-        st.error("❌ Password incorrect")
-    return False
+    # Function removed in final version, kept here as placeholder for clarity
+    pass
 
 # --- MAIN DASHBOARD RENDERER ---
 def render_dashboard(selected_key):
-    # This style block ensures the dashboard content itself gets the opaque background
-    st.markdown("""
-        <style>
-            /* Ensures wide layout uses maximum space */
-            .main .block-container { 
-                background-color: rgba(255, 255, 255, 0.90); 
-                padding: 2rem; 
-                border-radius: 10px;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-            }
-        </style>
-    """, unsafe_allow_html=True)
-
     # --- ZONING MAP BUTTON ---
     if selected_key == 'peri':
         pdf_file_name = "zoning.pdf"
@@ -668,7 +638,7 @@ def render_dashboard(selected_key):
                 if sel_ft:
                     df_sft = df_ft[df_ft['Label'] == sel_ft].copy()
                     ft_rep = generate_report_df(df_sft, date_col, col_username, selected_key, col_premises, col_subzone, col_street, current_config)
-                    st.dataframe(ft_rep, hide_index=True)
+                    st.dataframe(rep_df, hide_index=True)
                     st.download_button("Download Excel", to_excel(ft_rep), "Fortnightly.xlsx", key=f"fortnight_download_{selected_key}")
 
     # --- EXECUTIVE SUMMARY (ALWAYS OPEN) ---
@@ -678,29 +648,23 @@ def render_dashboard(selected_key):
 
 # --- HOME PAGE LOGIC ---
 def render_home_page():
-    # --- CSS for Background (No max-width restriction applied here) ---
-    try:
-        bin_str = get_base64_of_bin_file("logo.png")
-        page_bg_img = f"""
+    # --- CSS: REMOVE BACKGROUND IMAGE AND OPAQUE LAYER ---
+    st.markdown("""
         <style>
-        .stApp {{
-            background-image: url("data:image/png;base64,{bin_str}");
-            background-size: cover;
-            background-position: center center;
-            background-repeat: no-repeat;
-            background-attachment: fixed;
-        }}
-        /* Dashboard content is opaque for readability */
-        .main .block-container {{ 
-            background-color: rgba(255, 255, 255, 0.90); 
-            border-radius: 10px;
-        }}
+        .stApp {
+            /* Ensures default white/theme background */
+            background-image: none !important;
+            background-color: white !important;
+        }
+        /* Remove the white opaque background on content area */
+        .main .block-container { 
+            background-color: transparent !important; 
+            border-radius: 0px !important;
+            box-shadow: none !important;
+        }
         </style>
-        """
-        st.markdown(page_bg_img, unsafe_allow_html=True)
-    except:
-        st.warning("Background image 'logo.png' not found on GitHub.")
-
+    """, unsafe_allow_html=True)
+    
     # AUTHENTICATION IS BYPASSED FOR STABILITY
     is_authenticated = True
     
@@ -712,10 +676,6 @@ def render_home_page():
         
         # --- NEW MAIN DASHBOARD ROUTER ---
         main_tabs = st.tabs(["🦟 Outside Field (Peri)", "✈️ Inside Field (Intra)", "✈️ International Flights"])
-        
-        # We don't need the 'Back to Home' button since this is the main page now.
-        # But we keep the sidebar structure alive for filters.
-        # st.sidebar.button("🏠 Back to Home", key="home_sidebar_button")
         
         with main_tabs[0]:
             render_dashboard('peri')
