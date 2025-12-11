@@ -13,11 +13,14 @@ import base64
 import datetime
 
 # --- 1. SETUP PAGE CONFIGURATION ---
-st.set_page_config(page_title="APHO Tiruchirappalli Dashboard", layout="wide", page_icon="🦟")
+st.set_page_config(page_title="APHO Tiruchirappalli Dashboard", layout="wide")
 
-# --- INITIALIZE SESSION STATE FOR REPORTS ---
+# --- INITIALIZE SESSION STATE ---
 if 'reports' not in st.session_state:
     st.session_state['reports'] = []
+
+if 'authenticated' not in st.session_state:
+    st.session_state['authenticated'] = False
 
 # --- STAFF NAME MAPPING ---
 STAFF_NAMES = {
@@ -149,6 +152,7 @@ def get_base64_of_bin_file(bin_file):
 
 # --- FILE HANDLERS ---
 def get_pdf_bytes(filename):
+    """Reads a local PDF file into bytes for download/viewing."""
     try:
         with open(filename, 'rb') as f:
             return f.read()
@@ -279,18 +283,52 @@ def generate_narrative_summary(df, selected_key, date_col, col_street, col_subzo
             
     return "\n\n".join(narrative)
 
+# --- AUTHENTICATION ---
+def check_password():
+    """Returns `True` if the user had a correct password."""
+    def password_entered():
+        if st.session_state["password"] == "Aphotrz@2025":
+            st.session_state["authenticated"] = True
+            del st.session_state["password"] 
+        else:
+            st.session_state["authenticated"] = False
+
+    if st.session_state.get("authenticated", False):
+        return True
+
+    st.markdown("""
+        <style>
+        .stApp { background-color: #f8fafc; }
+        .login-box {
+            max-width: 400px;
+            margin: 100px auto;
+            padding: 30px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            text-align: center;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    st.markdown('<div class="login-box"><h2>🔐 Access Restricted</h2><p>Please enter your credentials.</p></div>', unsafe_allow_html=True)
+    st.text_input("Password", type="password", on_change=password_entered, key="password")
+    
+    if "authenticated" in st.session_state and not st.session_state["authenticated"]:
+        st.error("😕 Incorrect password")
+        
+    return False
+
 # --- CUSTOM CSS INJECTION ---
 def inject_custom_css():
     st.markdown("""
         <style>
-        /* Import a professional font */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
         
         html, body, [class*="css"] {
             font-family: 'Inter', sans-serif;
         }
 
-        /* Gradient Header */
         .main-header {
             background: linear-gradient(135deg, #1E3A8A 0%, #3B82F6 100%);
             padding: 2rem;
@@ -301,12 +339,10 @@ def inject_custom_css():
             box-shadow: 0 4px 15px rgba(0,0,0,0.1);
         }
         
-        /* Dashboard Container styling */
         .block-container {
             padding-top: 2rem !important;
         }
 
-        /* Metric Cards Styling */
         div[data-testid="stMetric"] {
             background-color: #ffffff;
             border: 1px solid #e0e0e0;
@@ -320,7 +356,6 @@ def inject_custom_css():
             border-color: #3B82F6;
         }
 
-        /* Style expanders to look like cards */
         .streamlit-expanderHeader {
             background-color: #f8fafc;
             border-radius: 8px;
@@ -328,21 +363,18 @@ def inject_custom_css():
             color: #1e293b;
         }
         
-        /* Table Styling */
         div[data-testid="stDataFrame"] {
             border: 1px solid #e2e8f0;
             border-radius: 8px;
             overflow: hidden;
         }
         
-        /* Custom Button Styling */
         .stButton button {
             border-radius: 8px;
             font-weight: 600;
             transition: all 0.2s;
         }
         
-        /* Remove default padding around top */
         .css-18e3th9 {
             padding-top: 1rem;
         }
@@ -351,12 +383,10 @@ def inject_custom_css():
 
 # --- MAIN DASHBOARD RENDERER ---
 def render_dashboard(selected_key):
-    # Inject CSS
     inject_custom_css()
     
     current_config = SECTION_CONFIG[selected_key]
     
-    # Styled Title
     st.markdown(f"""
         <div class="main-header">
             <h1 style="margin:0; font-size: 2.2rem;">{current_config.get('icon', '')} {current_config['title']}</h1>
@@ -410,7 +440,6 @@ def render_dashboard(selected_key):
             use_container_width=True,
             hide_index=True
         )
-        
         st.stop()
 
     # --- ZONING MAP BUTTON ---
@@ -434,7 +463,6 @@ def render_dashboard(selected_key):
                     key=f'download_pdf_{selected_key}',
                     use_container_width=True
                 )
-    # --------------------------
 
     with st.spinner('Fetching Surveillance data...'):
         df = load_kobo_data(current_config['surv_url'])
@@ -480,10 +508,8 @@ def render_dashboard(selected_key):
         staff1_col = clean_cols.get("flight_duty_personnel") 
         staff2_col = clean_cols.get("deputy")
         
-        if not staff1_col:
-             staff1_col = next((c for c in df.columns if "duty" in c.lower() and "personnel" in c.lower()), None)
-        if not staff2_col:
-             staff2_col = next((c for c in df.columns if "deputy" in c.lower()), None)
+        if not staff1_col: staff1_col = next((c for c in df.columns if "duty" in c.lower() and "personnel" in c.lower()), None)
+        if not staff2_col: staff2_col = next((c for c in df.columns if "deputy" in c.lower()), None)
 
         if staff1_col and staff2_col:
             all_staff = pd.concat([df_filtered[staff1_col].dropna(), df_filtered[staff2_col].dropna()]).astype(str).unique().tolist()
@@ -575,7 +601,6 @@ def render_dashboard(selected_key):
     label_entries = "Unique Premises" if selected_key == 'intra' else "Total Entries"
     total_pos_containers = int(df_filtered['pos_cont_calc'].sum())
     
-    # --- METRICS DISPLAY ---
     st.markdown("<br>", unsafe_allow_html=True)
     m1, m2, m3, m4, m5, m6 = st.columns(6)
     m1.metric(label_entries, display_count)
@@ -823,6 +848,9 @@ def render_dashboard(selected_key):
 def render_home_page():
     inject_custom_css()
     
+    if not check_password():
+        return
+
     st.markdown(f"""
         <div class="main-header">
             <h1 style="margin:0; font-size: 2.2rem;">AIRPORT HEALTH ORGANISATION</h1>
