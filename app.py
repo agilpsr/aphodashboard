@@ -145,13 +145,13 @@ def show_add_report_dialog():
             
         summary = st.text_area("Summary of Actions Taken", height=150, placeholder="Describe measures taken, areas covered, chemicals used, etc.")
         
-        uploaded_file = st.file_uploader("Upload Report File (Excel)", type=['xlsx', 'xls'])
+        # FIX 1: Changed to accept PDF files
+        uploaded_file = st.file_uploader("Upload Action Report (PDF)", type=['pdf'])
         
         submitted = st.form_submit_button("Submit Report")
         
         if submitted:
             # Here you would typically save to a database or cloud storage.
-            # Since this is a stateless demo, we just show a success message.
             st.success(f"Report for {report_month} {report_year} submitted successfully!")
             st.rerun()
 
@@ -281,7 +281,6 @@ def generate_narrative_summary(df, selected_key, date_col, col_street, col_subzo
 
 # --- PASSWORD FUNCTION ---
 def check_password_on_home():
-    # Placeholder
     return True
 
 # --- MAIN DASHBOARD RENDERER ---
@@ -300,13 +299,8 @@ def render_dashboard(selected_key):
             if st.button("➕ Add New Report", use_container_width=True):
                 show_add_report_dialog()
         
-        # Placeholder Data (Replace with DB or File storage in future)
+        # Placeholder Data 
         st.info("No reports have been uploaded yet.")
-        
-        # Example of how it would look with data:
-        # data = {'Month': ['January', 'February'], 'Year': [2025, 2025], 'Summary': ['Routine spray conducted.', 'Fogging done in Sector 4.'], 'File': ['Link', 'Link']}
-        # st.dataframe(pd.DataFrame(data), use_container_width=True)
-        
         st.stop()
     # -----------------------------------------------
 
@@ -341,10 +335,9 @@ def render_dashboard(selected_key):
         return
     
     # --- START FILTERING (All sections use this) ---
-    st.sidebar.subheader("Filters") # Set fixed header
+    st.sidebar.subheader("Filters") 
     df_filtered = df.copy()
 
-    # Column Mapping (Standard Dashboard Logic)
     col_map_lower = {c.lower(): c for c in df.columns}
     col_zone = col_map_lower.get('zone')
     col_subzone = col_map_lower.get('subzone')
@@ -362,53 +355,36 @@ def render_dashboard(selected_key):
         for c in ['today', 'start', '_submission_time']:
              if c in col_map_lower: date_col = col_map_lower[c]; break
 
-
-    # Date Filter (Used by ALL sections)
+    # Date Filter
     if date_col:
         df_filtered[date_col] = pd.to_datetime(df_filtered[date_col])
         min_date, max_date = df_filtered[date_col].min().date(), df_filtered[date_col].max().date()
-        
-        # Render Date Filter to sidebar placeholder
         d1, d2 = st.sidebar.columns(2)
         start_date = d1.date_input("Start", min_date, key=f"start_date_{selected_key}")
         end_date = d2.date_input("End", max_date, key=f"end_date_{selected_key}")
         mask = (df_filtered[date_col].dt.date >= start_date) & (df_filtered[date_col].dt.date <= end_date)
         df_filtered = df_filtered.loc[mask]
 
-
     # --- FLIGHTS SCREENING SUMMARY (Special Case) ---
     if selected_key == 'flights':
         
-        # --- DEBUG EXPANDER TO SEE COLUMNS ---
-        with st.expander("🛠️ Debug: View Flight Data Columns", expanded=False):
-            st.write("Current DataFrame Columns:", df.columns.tolist())
-        # ------------------------------------
-
-        # --- DYNAMIC COLUMN SEARCH ---
         clean_cols = {c.strip().lower(): c for c in df.columns}
-        
         staff1_col = clean_cols.get("flight_duty_personnel") 
         staff2_col = clean_cols.get("deputy")
         
-        # Fallback search if exact keys are missing
         if not staff1_col:
              staff1_col = next((c for c in df.columns if "duty" in c.lower() and "personnel" in c.lower()), None)
         if not staff2_col:
              staff2_col = next((c for c in df.columns if "deputy" in c.lower()), None)
 
-        
-        # 1. STAFF FILTERS (Rendered Conditionally to sidebar)
         if staff1_col and staff2_col:
             all_staff = pd.concat([df_filtered[staff1_col].dropna(), df_filtered[staff2_col].dropna()]).astype(str).unique().tolist()
-            
             selected_personnel = st.sidebar.multiselect(
                 "Filter by Duty Personnel", 
                 sorted(all_staff), 
                 key=f"personnel_filter_{selected_key}"
             )
-            
             if selected_personnel:
-                # Apply the combined filter (OR logic)
                 mask = (df_filtered[staff1_col].astype(str).isin(selected_personnel)) | \
                        (df_filtered[staff2_col].astype(str).isin(selected_personnel))
                 df_filtered = df_filtered[mask]
@@ -419,44 +395,28 @@ def render_dashboard(selected_key):
             st.info("No data available for the selected filters.")
             st.stop()
 
-
-        # 2. SUMMARY TABLE CALCULATION
         st.header("International Flights Screening Data Summary")
         summary_data = []
         total_entries = len(df_filtered)
-        
-        # Row 1: Total Entries
         summary_data.append(["Total International Flights Screened (Total Entries)", total_entries])
-        
-        # Row 2: Total Days of Screening
         total_days = df_filtered[date_col].dt.date.nunique() if date_col else 'N/A'
         summary_data.append(["Total Days of Screening", total_days])
         
-        # Subsequent Rows: Sum of Other Variables
         numeric_df = df_filtered.select_dtypes(include=['number']).fillna(0)
         exclude_cols = ['_index', 'latitude', 'longitude', 'accuracy', '_id', 'instanceid', 'start', 'end'] 
-        
         for col in numeric_df.columns:
             if not col.startswith('_') and col.lower() not in exclude_cols:
                 col_sum = numeric_df[col].sum()
                 summary_data.append([col, f"{col_sum:,.0f}"])
                 
         summary_df = pd.DataFrame(summary_data, columns=["Metric", "Value"])
-        
         st.table(summary_df)
         
-        st.download_button(
-            "Download Raw Flights Data",
-            to_excel(df_filtered),
-            "Flights_Raw_Data_Filtered.xlsx",
-            key="flights_raw_download"
-        )
+        st.download_button("Download Raw Flights Data", to_excel(df_filtered), "Flights_Raw_Data_Filtered.xlsx", key="flights_raw_download")
         st.stop()
-    # --- END FLIGHTS SCREENING SUMMARY ---
 
     # --- START OF STANDARD DASHBOARD (Peri/Intra) ---
 
-    # Standard filters for Peri/Intra (Rendered Conditionally to sidebar)
     if col_zone and col_zone in df_filtered.columns:
         opts = sorted(df_filtered[col_zone].dropna().unique().astype(str))
         st.sidebar.multiselect(f"Filter by Zone", opts, key=f"zone_filter_{selected_key}")
@@ -469,8 +429,7 @@ def render_dashboard(selected_key):
         if st.session_state.get(f"subzone_filter_{selected_key}"):
              df_filtered = df_filtered[df_filtered[col_subzone].astype(str).isin(st.session_state[f"subzone_filter_{selected_key}"])]
 
-
-    # Calcs (Standard Dashboard Logic continues...)
+    # Calcs
     for col, raw_col in [('pos_house_calc', col_pos_house_raw), ('pos_cont_calc', col_pos_cont_raw), ('wet_cont_calc', col_wet_cont_raw)]:
         df_filtered[col] = pd.to_numeric(df_filtered[raw_col], errors='coerce').fillna(0) if raw_col in df_filtered.columns else 0
     df_filtered['dry_cont_calc'] = pd.to_numeric(df_filtered[col_dry_cont_raw], errors='coerce').fillna(0) if col_dry_cont_raw in df_filtered.columns else 0
@@ -480,7 +439,6 @@ def render_dashboard(selected_key):
         if col_premises and date_col:
             df_filtered['unique_premise_id'] = df_filtered[date_col].dt.date.astype(str) + "_" + df_filtered[col_premises].apply(normalize_string)
             agg_dict = {'pos_house_calc': 'max', 'pos_cont_calc': 'sum', 'wet_cont_calc': 'sum', 'dry_cont_calc': 'sum'}
-            
             if date_col: agg_dict[date_col] = 'first'
             for c in [col_zone, col_lat, col_lon, col_premises, col_username]:
                 if c and c in df_filtered.columns: agg_dict[c] = 'first'
@@ -506,13 +464,8 @@ def render_dashboard(selected_key):
             bi_val = (df_filtered['pos_cont_calc'].sum() / display_count * 100)
         df_for_graphs = df_filtered.copy()
 
-    # --- TOP METRICS ROW ---
-    label_hi = "Premises Index (PI)" if selected_key == 'intra' else "House Index (HI)"
-    label_entries = "Unique Premises" if selected_key == 'intra' else "Total Entries"
-    total_pos_containers = int(df_filtered['pos_cont_calc'].sum())
-    
     m1, m2, m3, m4, m5, m6 = st.columns(6)
-    m1.metric(label_entries, display_count)
+    m1.metric(label_hi, display_count)
     m2.metric("Positive Found", positive_count)
     m3.metric("Total Positive Containers", total_pos_containers)
     m4.metric(label_hi, f"{hi_val:.2f}")
@@ -521,10 +474,7 @@ def render_dashboard(selected_key):
 
     st.divider()
 
-    # --- EXTENDED GRAPHS SECTION (COLLAPSIBLE) ---
     with st.expander("📊 Graphical Analysis (Click to Expand)", expanded=False):
-        
-        # --- DYNAMIC TAB DEFINITION ---
         active_tab_labels = ["📈 Trend Analysis", "🌍 Zone Stats"]
         if selected_key == 'peri':
             active_tab_labels.extend(["🏘️ Subzone Stats", "🛣️ Street Stats"])
@@ -551,7 +501,6 @@ def render_dashboard(selected_key):
 
         def render_standard_charts(group_col, title_prefix, tab_label):
             if tab_label not in current_tab_map: return
-            
             with graph_tabs[current_tab_map[tab_label]]:
                 if group_col not in df_for_graphs.columns:
                     st.warning(f"Column for {title_prefix} not found.")
@@ -567,9 +516,7 @@ def render_dashboard(selected_key):
                 g['CI'] = (g['pos_cont_calc'] / g['wet_cont_calc'].replace(0, 1) * 100).fillna(0)
                 g['BI'] = (g['pos_cont_calc'] / g['Total Entries'] * 100).fillna(0)
                 g = g.reset_index().sort_values('HI', ascending=False)
-                if len(g) > 20:
-                    st.caption(f"Showing Top 20 {title_prefix}s by Activity")
-                    g = g.head(20)
+                if len(g) > 20: g = g.head(20)
 
                 c1, c2 = st.columns(2)
                 c1.plotly_chart(plot_metric_bar(g, group_col, 'HI', f"{label_hi} by {title_prefix}", 'HI', 20), use_container_width=True)
@@ -584,20 +531,15 @@ def render_dashboard(selected_key):
         
         if "🏢 Premises Stats" in current_tab_map:
             with graph_tabs[current_tab_map['🏢 Premises Stats']]:
-                st.subheader("Daily Activity Analysis")
-                if selected_key == 'intra' and date_col in df_for_graphs.columns and 'unique_premise_id' in df_for_graphs.columns:
-                    daily_prem = df_for_graphs.groupby(date_col)['unique_premise_id'].nunique().reset_index()
-                    daily_prem.columns = ['Date', 'Unique Premises']
-                    fig_daily = px.bar(daily_prem, x='Date', y='Unique Premises', title="Total Unique Premises Checked per Day")
-                    st.plotly_chart(fig_daily, use_container_width=True)
-                else:
-                    st.warning("Daily data or Unique Premises ID missing for this graph.")
-                
+                # --- FIX 2: Added requested Intra Premises Graphs ---
+                st.subheader("Premises Level Analysis")
                 if col_premises in df_for_graphs.columns:
-                    st.divider()
-                    render_standard_charts(col_premises, "Premise", "Premise Stats Placeholder")
+                    # Reuse the standard chart renderer for Premises, passing the correct column
+                    render_standard_charts(col_premises, "Premise", "🏢 Premises Stats")
+                else:
+                    st.warning("Premises data not available for graphing.")
 
-    # --- MAP (COLLAPSIBLE) ---
+
     with st.expander("🌍 Geo-Spatial Map (Click to Expand)", expanded=False):
         if col_lat in df_for_graphs.columns and col_lon in df_for_graphs.columns:
             map_df = df_for_graphs.dropna(subset=[col_lat, col_lon]).copy()
@@ -608,31 +550,25 @@ def render_dashboard(selected_key):
                     folium.CircleMarker([row[col_lat], row[col_lon]], radius=6, color=color, fill=True, fill_color=color).add_to(m)
                 st_folium(m, height=400)
 
-    # --- LARVAE ID TABLE (COLLAPSIBLE) ---
     if current_config.get('id_url'):
         with st.expander("🔬 Larvae Identification Data (Click to Expand)", expanded=False):
             df_id = load_kobo_data(current_config['id_url'])
-            
             if not df_id.empty:
                 # 1. Define Clean Targets
                 COL_GENUS = "Select the Genus:".strip()
                 COL_SPECIES = "Select the Species:".strip()
-                COL_CONTAINER_LABEL = "Type of container in which the sample was collected from".strip() # Target (Cleaned)
+                COL_CONTAINER_LABEL = "Type of container in which the sample was collected from".strip() 
                 COL_SUBMITTED = "_submitted_by".strip()
 
-                # 2. Find Actual Column Names (Robust Search - strips all spaces from headers)
                 clean_to_orig_map = {col.strip(): col for col in df_id.columns}
-
                 col_genus = clean_to_orig_map.get(COL_GENUS)
                 col_species = clean_to_orig_map.get(COL_SPECIES)
                 col_container = clean_to_orig_map.get(COL_CONTAINER_LABEL)
                 col_submitted = clean_to_orig_map.get(COL_SUBMITTED)
                 
-                # FALLBACK CHECK for common variations in Peri data
                 if not col_container:
-                    FALLBACK_KEY = "Type of container the sample was collected from".strip() # Shorter label?
+                    FALLBACK_KEY = "Type of container the sample was collected from".strip() 
                     col_container = clean_to_orig_map.get(FALLBACK_KEY)
-                # --------------------------------------
 
                 col_map_id = {c.lower(): c for c in df_id.columns}
                 date_col_id = next((c for c in df_id.columns if c in ['Date', 'today', 'date']), None)
@@ -709,7 +645,6 @@ def render_dashboard(selected_key):
             else:
                 st.info("No identification data available.")
 
-    # --- STAFF PERFORMANCE REPORT (COLLAPSIBLE) ---
     with st.expander("👮 Staff Performance Report (Click to Expand)", expanded=False):
         if col_username in df_filtered.columns:
             staff_group = df_filtered.groupby(col_username)
@@ -738,7 +673,6 @@ def render_dashboard(selected_key):
             st.download_button("Download Staff Excel", to_excel(staff_final), "Staff_Performance.xlsx", key=f"staff_excel_download_{selected_key}")
         else: st.warning("Username column not found.")
 
-    # --- MONTHLY & FORTNIGHTLY REPORTS (COLLAPSIBLE) ---
     c_month, c_fort = st.columns(2)
     with c_month:
         with st.expander("📅 Monthly Report (Click to Expand)", expanded=False):
@@ -775,14 +709,11 @@ def render_dashboard(selected_key):
                     st.dataframe(ft_rep, hide_index=True)
                     st.download_button("Download Excel", to_excel(ft_rep), "Fortnightly.xlsx", key=f"fortnight_download_{selected_key}")
 
-    # --- EXECUTIVE SUMMARY (ALWAYS OPEN) ---
     st.divider()
     summary_text = generate_narrative_summary(df_filtered, selected_key, date_col, col_street, col_subzone, col_premises)
     st.markdown(summary_text)
 
-# --- HOME PAGE LOGIC ---
 def render_home_page():
-    # --- CSS: REMOVE BACKGROUND IMAGE ---
     st.markdown("""
         <style>
         .stApp {
@@ -801,13 +732,9 @@ def render_home_page():
     st.markdown("<h3 style='text-align: center; color: #1E3A8A;'>TIRUCHIRAPPALLI INTERNATIONAL AIRPORT</h3>", unsafe_allow_html=True)
     st.divider()
     
-    # 1. Check if a page is selected
     if st.session_state.get('page') not in ['peri', 'intra', 'flights', 'anti_larval']:
-        
-        # 2. Render Navigation Buttons
         st.header("Select Activity Section")
         col1, col2 = st.columns(2)
-        
         with col1:
             if st.button("🦟 Outside Field Activities (Peri)", use_container_width=True, type="primary"):
                 st.session_state['page'] = 'peri'
@@ -816,7 +743,6 @@ def render_home_page():
             if st.button("✈️ Inside Field Activities (Intra)", use_container_width=True, type="primary"):
                 st.session_state['page'] = 'intra'
                 st.rerun()
-
         with col2:
             if st.button("✈️ International Flights Screening", use_container_width=True, type="primary"):
                 st.session_state['page'] = 'flights'
@@ -827,14 +753,11 @@ def render_home_page():
                 st.rerun()
                 
     else:
-        # 3. Render the specific dashboard
         if st.sidebar.button("🏠 Back to Home", key="back_to_home_button"):
             st.session_state['page'] = 'home'
             st.rerun()
-            
         render_dashboard(st.session_state['page'])
 
-# --- APP ENTRY POINT (Page Router) ---
 if 'page' not in st.session_state:
     st.session_state['page'] = 'home'
 
