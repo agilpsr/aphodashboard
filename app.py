@@ -224,7 +224,7 @@ def generate_narrative_summary(df, selected_key, date_col, col_street, col_subzo
     loc_col = col_subzone if selected_key == 'peri' else col_premises
     if loc_col and loc_col in df_curr.columns:
         cont_stats = df_curr.groupby(loc_col)['pos_cont_calc'].sum().sort_values(ascending=False)
-        high_cont = cont_stats[cont_stats > 0].head(3)
+        high_cont = cont_stats[cont_cont_calc'] > 0].head(3)
         if not high_cont.empty:
             c_list = ", ".join([f"**{idx}** ({int(val)} containers)" for idx, val in high_cont.items()])
             narrative.append(f"**🪣 High Positive Containers:** Found in {c_list}.")
@@ -252,7 +252,7 @@ def generate_narrative_summary(df, selected_key, date_col, col_street, col_subzo
 # --- PASSWORD FUNCTION ---
 def check_password_on_home():
     def password_entered():
-        # FIX: Added existence check to prevent KeyError
+        # FIX: Added defensive check to prevent KeyError
         if "password" in st.session_state and st.session_state["password"] == "Aphotrz@2025":
             st.session_state["password_correct"] = True
             del st.session_state["password"]
@@ -293,8 +293,7 @@ def render_dashboard(selected_key):
             st.warning(f"File '{pdf_file_name}' not found. Ensure it is uploaded to the root directory.")
     # --------------------------
 
-    current_config = SECTION_CONFIG[selected_key] # This line was the root of the KeyError if it somehow disappeared
-    
+    current_config = SECTION_CONFIG[selected_key]
     st.title(current_config['title'])
 
     with st.spinner('Fetching Surveillance data...'):
