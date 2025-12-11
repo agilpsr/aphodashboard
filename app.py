@@ -459,10 +459,7 @@ def render_dashboard(selected_key):
     with st.expander("🔬 Larvae Identification Data (Click to Expand)", expanded=False):
         df_id = load_kobo_data(current_config['id_url'])
         
-        # --- DEBUG EXPANDER ---
-        with st.expander("🛠️ Debug: View Data Headers"):
-            st.write("Here are the exact column names in your data:")
-            st.write(df_id.columns.tolist())
+       
         # ---------------------
 
         if not df_id.empty:
