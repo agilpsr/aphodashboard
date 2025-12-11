@@ -6,7 +6,6 @@ import plotly.express as px
 import re
 import urllib.parse
 import folium
-from folium import IFrame
 from streamlit_folium import st_folium
 import xlsxwriter
 from PIL import Image
@@ -95,7 +94,7 @@ def plot_metric_bar(data, x_col, y_col, title, color_col, range_max=None):
     fig.update_layout(
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
-        font=dict(family="Inter, sans-serif", size=14, color="black"), # Bolder font in charts
+        font=dict(family="Inter, sans-serif", size=14, color="black"), 
         coloraxis_showscale=False
     )
     fig.update_traces(texttemplate='%{text:.2f}', textposition='outside')
@@ -324,18 +323,18 @@ def check_password():
 def inject_custom_css():
     st.markdown("""
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
         
         html, body, [class*="css"] {
             font-family: 'Inter', sans-serif;
-            font-size: 18px; /* Base font size increased */
-            font-weight: 500;
+            font-size: 18px; /* Increased font size */
+            font-weight: 500; /* Bolder */
             color: #0f172a;
         }
 
         /* Gradient Header */
         .main-header {
-            background: linear-gradient(135deg, #0f4c81 0%, #2980b9 100%);
+            background: linear-gradient(135deg, #1E3A8A 0%, #3B82F6 100%);
             padding: 2.5rem;
             border-radius: 0 0 20px 20px;
             color: white;
@@ -404,7 +403,8 @@ def inject_custom_css():
 
 @st.dialog("🌍 Expanded Geo-Spatial Map", width="large")
 def show_large_map(m):
-    st_folium(m, height=700, width=1200, use_container_width=True)
+    # Added unique key to st_folium inside dialog to prevent ID collision
+    st_folium(m, height=700, width=1200, use_container_width=True, key="large_map_dialog")
 
 # --- MAIN DASHBOARD RENDERER ---
 def render_dashboard(selected_key):
@@ -428,6 +428,7 @@ def render_dashboard(selected_key):
             st.stop()
             
         st.subheader("Reports Repository")
+        
         column_config = {}
         clean_cols = {c.strip().lower(): c for c in df_action.columns}
         
@@ -536,7 +537,7 @@ def render_dashboard(selected_key):
                 
         summary_df = pd.DataFrame(summary_data, columns=["Metric", "Value"])
         st.table(summary_df)
-        st.download_button("Download Raw Flights Data", to_excel(df_filtered), "Flights_Raw_Data.xlsx", key="flights_raw_download")
+        st.download_button("Download Raw Flights Data", to_excel(df_filtered), "Flights_Raw_Data_Filtered.xlsx", key="flights_raw_download")
         st.stop()
 
     # --- STANDARD DASHBOARD FILTERS ---
@@ -664,7 +665,6 @@ def render_dashboard(selected_key):
                     st.warning("Premises data not available for graphing.")
 
     with st.expander("🌍 Geo-Spatial Map", expanded=False):
-        # 1. Add "Maximize Map" Button
         if st.button("🔍 Maximize Map", key=f"max_map_{selected_key}"):
             if col_lat in df_for_graphs.columns and col_lon in df_for_graphs.columns:
                  map_df = df_for_graphs.dropna(subset=[col_lat, col_lon]).copy()
@@ -683,26 +683,16 @@ def render_dashboard(selected_key):
                             popup=folium.Popup(popup_html, max_width=350)
                         ).add_to(m)
                     show_large_map(m)
-        
-        # 2. Standard Map
+
         if col_lat in df_for_graphs.columns and col_lon in df_for_graphs.columns:
             map_df = df_for_graphs.dropna(subset=[col_lat, col_lon]).copy()
             if not map_df.empty:
                 m = folium.Map(location=[map_df[col_lat].mean(), map_df[col_lon].mean()], zoom_start=13)
                 for _, row in map_df.iterrows():
                     color = '#00ff00' if row['pos_house_calc'] == 0 else '#ff0000'
-                    # Construct Popup Table for standard map too
-                    popup_html = "<div style='width:300px; height:200px; overflow-y:auto;'><table border='1' style='width:100%'>"
-                    for col, val in row.items():
-                         if not str(col).startswith("_") and pd.notna(val):
-                              popup_html += f"<tr><td><b>{col}</b></td><td>{val}</td></tr>"
-                    popup_html += "</table></div>"
-                    
-                    folium.CircleMarker(
-                        [row[col_lat], row[col_lon]], radius=6, color=color, fill=True, fill_color=color,
-                        popup=folium.Popup(popup_html, max_width=350)
-                    ).add_to(m)
-                st_folium(m, height=400)
+                    folium.CircleMarker([row[col_lat], row[col_lon]], radius=6, color=color, fill=True, fill_color=color).add_to(m)
+                # FIX: Added unique key to prevent duplicate element ID error
+                st_folium(m, height=400, key=f"main_map_{selected_key}")
 
     if current_config.get('id_url'):
         with st.expander("🔬 Larvae Identification Data", expanded=False):
