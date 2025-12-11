@@ -13,7 +13,7 @@ import base64
 import datetime
 
 # --- 1. SETUP PAGE CONFIGURATION ---
-st.set_page_config(page_title="APHO Tiruchirappalli Dashboard", layout="wide")
+st.set_page_config(page_title="APHO Tiruchirappalli Dashboard", layout="wide", page_icon="🦟")
 
 # --- INITIALIZE SESSION STATE ---
 if 'reports' not in st.session_state:
@@ -506,7 +506,12 @@ def render_dashboard(selected_key):
         end_date = d2.date_input("End", max_date, key=f"end_date_{selected_key}")
         mask = (df_filtered[date_col].dt.date >= start_date) & (df_filtered[date_col].dt.date <= end_date)
         df_filtered = df_filtered.loc[mask]
-
+        
+    # --- DEBUGGING FOR PERI AIRPORT COLUMNS ---
+    if selected_key == 'peri':
+        with st.expander("🛠️ Debug: View Peri Data Columns"):
+            st.write(df.columns.tolist())
+            
     # --- FLIGHTS SCREENING SUMMARY ---
     if selected_key == 'flights':
         clean_cols = {c.strip().lower(): c for c in df.columns}
@@ -539,7 +544,7 @@ def render_dashboard(selected_key):
                 
         summary_df = pd.DataFrame(summary_data, columns=["Metric", "Value"])
         st.table(summary_df)
-        st.download_button("Download Raw Flights Data", to_excel(df_filtered), "Flights_Raw_Data.xlsx", key="flights_raw_download")
+        st.download_button("Download Raw Flights Data", to_excel(df_filtered), "Flights_Raw_Data_Filtered.xlsx", key="flights_raw_download")
         st.stop()
 
     # --- STANDARD DASHBOARD FILTERS ---
@@ -666,32 +671,36 @@ def render_dashboard(selected_key):
                 else:
                     st.warning("Premises data not available for graphing.")
 
-    with st.expander("🌍 Geo-Spatial Map", expanded=False):
+    with st.expander("🌍 Geo-Spatial Map", expanded=True):
         # 1. Standard Map
         if col_lat in df_for_graphs.columns and col_lon in df_for_graphs.columns:
             map_df = df_for_graphs.dropna(subset=[col_lat, col_lon]).copy()
             if not map_df.empty:
-                # Get the column for House Number
+                # Get the column for House Number and Street dynamically
                 col_house = next((c for c in df_filtered.columns if 'house' in c.lower() and 'number' in c.lower()), None)
-
-                m = folium.Map(location=[map_df[col_lat].mean(), map_df[col_lon].mean()], zoom_start=13)
+                col_street_map = col_street if col_street else next((c for c in df_filtered.columns if 'street' in c.lower()), None)
+                
+                # --- UPDATE: Increased map height and width ---
+                m = folium.Map(location=[map_df[col_lat].mean(), map_df[col_lon].mean()], zoom_start=14)
                 for _, row in map_df.iterrows():
                     color = '#00ff00' if row['pos_house_calc'] == 0 else '#ff0000'
                     
-                    # Construct Tooltip
+                    # --- UPDATE: Tooltip construction ---
                     tooltip_html = f"""
-                    <b>Street:</b> {row.get(col_street, 'N/A')}<br>
+                    <b>Street:</b> {row.get(col_street_map, 'N/A')}<br>
                     <b>House No:</b> {row.get(col_house, 'N/A')}<br>
                     <b>Pos Containers:</b> {row.get('pos_cont_calc', 0)}
                     """
                     
                     folium.CircleMarker(
-                        [row[col_lat], row[col_lon]], radius=6, color=color, fill=True, fill_color=color,
+                        [row[col_lat], row[col_lon]], radius=7, color=color, fill=True, fill_color=color,
                         tooltip=tooltip_html 
                     ).add_to(m)
                 
                 # Full width and increased height
                 st_folium(m, height=700, use_container_width=True, key=f"main_map_{selected_key}")
+            else:
+                 st.info("No GPS data found to render map.")
 
     if current_config.get('id_url'):
         with st.expander("🔬 Larvae Identification Data", expanded=False):
