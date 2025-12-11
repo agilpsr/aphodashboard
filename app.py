@@ -486,27 +486,11 @@ def render_dashboard(selected_key):
         return
     
     # --- ROBUST CALCULATION (The Fix for Peri Map) ---
-    col_pos_raw = find_column_by_keywords(df, ["found_positive", "positive_for_larvae", "among_the_wet", "how_many_wet_containers_were_found_positive"])
-    col_wet_raw = find_column_by_keywords(df, ["wet_containers", "wet container", "wet_containers_inspected"])
-    col_dry_raw = find_column_by_keywords(df, ["dry_container", "dry container"])
+    col_pos_house_raw = find_column_by_keywords(df, ["how_many_wet_containers_were_found_positive", "among_the_wet", "positive_premises"])
+    col_pos_cont_raw = find_column_by_keywords(df, ["how_many_wet_containers_were_found_positive", "positive_containers"])
+    col_wet_cont_raw = find_column_by_keywords(df, ["wet_containers", "wet container", "wet_containers_inspected"])
+    col_dry_cont_raw = find_column_by_keywords(df, ["dry_container", "dry container"])
 
-    if col_pos_raw:
-        df['pos_house_calc'] = pd.to_numeric(df[col_pos_raw], errors='coerce').fillna(0)
-        df['pos_cont_calc'] = pd.to_numeric(df[col_pos_raw], errors='coerce').fillna(0)
-    else:
-        df['pos_house_calc'] = 0
-        df['pos_cont_calc'] = 0
-
-    if col_wet_raw:
-        df['wet_cont_calc'] = pd.to_numeric(df[col_wet_raw], errors='coerce').fillna(0)
-    else:
-        df['wet_cont_calc'] = 0
-
-    if col_dry_raw:
-        df['dry_cont_calc'] = pd.to_numeric(df[col_dry_raw], errors='coerce').fillna(0)
-    else:
-        df['dry_cont_calc'] = 0
-    
     # --- START FILTERING ---
     st.sidebar.markdown("### 🔍 Filters") 
     df_filtered = df.copy()
@@ -576,7 +560,7 @@ def render_dashboard(selected_key):
                 
         summary_df = pd.DataFrame(summary_data, columns=["Metric", "Value"])
         st.table(summary_df)
-        st.download_button("Download Raw Flights Data", to_excel(df_filtered), "Flights_Raw_Data.xlsx", key="flights_raw_download")
+        st.download_button("Download Raw Flights Data", to_excel(df_filtered), "Flights_Raw_Data_Filtered.xlsx", key="flights_raw_download")
         st.stop()
 
     # --- STANDARD DASHBOARD FILTERS ---
@@ -592,6 +576,11 @@ def render_dashboard(selected_key):
         st.sidebar.multiselect(f"SubZone", opts, key=f"subzone_filter_{selected_key}")
         if st.session_state.get(f"subzone_filter_{selected_key}"):
              df_filtered = df_filtered[df_filtered[col_subzone].astype(str).isin(st.session_state[f"subzone_filter_{selected_key}"])]
+
+    # Calcs
+    for col, raw_col in [('pos_house_calc', col_pos_house_raw), ('pos_cont_calc', col_pos_cont_raw), ('wet_cont_calc', col_wet_cont_raw)]:
+        df_filtered[col] = pd.to_numeric(df_filtered[raw_col], errors='coerce').fillna(0) if raw_col in df_filtered.columns else 0
+    df_filtered['dry_cont_calc'] = pd.to_numeric(df_filtered[col_dry_cont_raw], errors='coerce').fillna(0) if col_dry_cont_raw in df_filtered.columns else 0
 
     display_count, positive_count, hi_val, ci_val, bi_val = 0, 0, 0, 0, 0
     if selected_key == 'intra':
