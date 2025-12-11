@@ -144,6 +144,7 @@ def show_add_report_dialog():
             report_year = st.number_input("Year", min_value=2020, max_value=2030, value=datetime.date.today().year)
             
         summary = st.text_area("Summary of Actions Taken", height=150, placeholder="Describe measures taken, areas covered, chemicals used, etc.")
+        
         uploaded_file = st.file_uploader("Upload Action Report (PDF)", type=['pdf'])
         
         submitted = st.form_submit_button("Submit Report")
@@ -287,15 +288,13 @@ def render_dashboard(selected_key):
     current_config = SECTION_CONFIG[selected_key]
     st.title(current_config['title'])
 
-    # --- ANTI-LARVAL ACTION REPORTS (New Section) ---
+    # --- ANTI-LARVAL ACTION REPORTS ---
     if selected_key == 'anti_larval':
         st.markdown("### Monthly Action Reports Repository")
-        
         c1, c2 = st.columns([3, 1])
         with c2:
             if st.button("➕ Add New Report", use_container_width=True):
                 show_add_report_dialog()
-        
         st.info("No reports have been uploaded yet.")
         st.stop()
     # -----------------------------------------------
@@ -330,10 +329,11 @@ def render_dashboard(selected_key):
         st.info("No data found or error loading Kobo data.")
         return
     
-    # --- START FILTERING (All sections use this) ---
+    # --- START FILTERING ---
     st.sidebar.subheader("Filters") 
     df_filtered = df.copy()
 
+    # Column Mapping
     col_map_lower = {c.lower(): c for c in df.columns}
     col_zone = col_map_lower.get('zone')
     col_subzone = col_map_lower.get('subzone')
@@ -363,7 +363,7 @@ def render_dashboard(selected_key):
 
     # --- FLIGHTS SCREENING SUMMARY (Special Case) ---
     if selected_key == 'flights':
-        
+        # Dynamic Column Search for Flights
         clean_cols = {c.strip().lower(): c for c in df.columns}
         staff1_col = clean_cols.get("flight_duty_personnel") 
         staff2_col = clean_cols.get("deputy")
@@ -460,8 +460,13 @@ def render_dashboard(selected_key):
             bi_val = (df_filtered['pos_cont_calc'].sum() / display_count * 100)
         df_for_graphs = df_filtered.copy()
 
+    # Define labels explicitly to avoid NameError
+    label_hi = "Premises Index (PI)" if selected_key == 'intra' else "House Index (HI)"
+    label_entries = "Unique Premises" if selected_key == 'intra' else "Total Entries"
+    total_pos_containers = int(df_filtered['pos_cont_calc'].sum())
+    
     m1, m2, m3, m4, m5, m6 = st.columns(6)
-    m1.metric(label_hi, display_count)
+    m1.metric(label_entries, display_count)
     m2.metric("Positive Found", positive_count)
     m3.metric("Total Positive Containers", total_pos_containers)
     m4.metric(label_hi, f"{hi_val:.2f}")
