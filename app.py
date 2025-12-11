@@ -152,7 +152,6 @@ def get_base64_of_bin_file(bin_file):
 
 # --- FILE HANDLERS ---
 def get_pdf_bytes(filename):
-    """Reads a local PDF file into bytes for download/viewing."""
     try:
         with open(filename, 'rb') as f:
             return f.read()
@@ -490,8 +489,11 @@ def render_dashboard(selected_key):
     col_pos_cont_raw = "Among_the_wet_containers_how_"
     col_wet_cont_raw = "Number_of_wet_containers_found" if "Number_of_wet_containers_found" in df.columns else "Number_of_wet_containers_"
     col_dry_cont_raw = "number_of_dry_contai_tentially_hold_water"
-    col_lat = "_Location_latitude"
-    col_lon = "_Location_longitude"
+    
+    # --- ROBUST GPS SEARCH FOR PERI & INTRA ---
+    col_lat = next((c for c in df.columns if 'latitude' in c.lower()), None)
+    col_lon = next((c for c in df.columns if 'longitude' in c.lower()), None)
+    
     date_col = "Date" if "Date" in df.columns else col_map_lower.get('date')
     if not date_col:
         for c in ['today', 'start', '_submission_time']:
@@ -507,7 +509,7 @@ def render_dashboard(selected_key):
         mask = (df_filtered[date_col].dt.date >= start_date) & (df_filtered[date_col].dt.date <= end_date)
         df_filtered = df_filtered.loc[mask]
         
-    # --- DEBUGGING FOR PERI AIRPORT COLUMNS ---
+    # --- DEBUGGING FOR PERI AIRPORT COLUMNS (Can Remove Later) ---
     if selected_key == 'peri':
         with st.expander("🛠️ Debug: View Peri Data Columns"):
             st.write(df.columns.tolist())
@@ -680,17 +682,21 @@ def render_dashboard(selected_key):
                 col_house = next((c for c in df_filtered.columns if 'house' in c.lower() and 'number' in c.lower()), None)
                 col_street_map = col_street if col_street else next((c for c in df_filtered.columns if 'street' in c.lower()), None)
                 
-                # --- UPDATE: Increased map height and width ---
                 m = folium.Map(location=[map_df[col_lat].mean(), map_df[col_lon].mean()], zoom_start=14)
                 for _, row in map_df.iterrows():
                     color = '#00ff00' if row['pos_house_calc'] == 0 else '#ff0000'
                     
-                    # --- UPDATE: Tooltip construction ---
-                    tooltip_html = f"""
-                    <b>Street:</b> {row.get(col_street_map, 'N/A')}<br>
-                    <b>House No:</b> {row.get(col_house, 'N/A')}<br>
-                    <b>Pos Containers:</b> {row.get('pos_cont_calc', 0)}
-                    """
+                    # Tooltip construction logic based on section
+                    if selected_key == 'intra':
+                        # Intra: Premises only
+                        tooltip_html = f"<b>Premises:</b> {row.get(col_premises, 'N/A')}<br><b>Pos Containers:</b> {row.get('pos_cont_calc', 0)}"
+                    else:
+                        # Peri: Street, House, Pos Containers (User requested columns 7,8,9,10,14 logic applied via dynamic search)
+                        tooltip_html = f"""
+                        <b>Street:</b> {row.get(col_street_map, 'N/A')}<br>
+                        <b>House No:</b> {row.get(col_house, 'N/A')}<br>
+                        <b>Pos Containers:</b> {row.get('pos_cont_calc', 0)}
+                        """
                     
                     folium.CircleMarker(
                         [row[col_lat], row[col_lon]], radius=7, color=color, fill=True, fill_color=color,
@@ -879,10 +885,7 @@ def render_home_page():
     
     if st.session_state.get('page') not in ['peri', 'intra', 'flights', 'anti_larval', 'sanitary']:
         st.header("Select Activity Section")
-        
-        # Grid Layout for Home Page
         col1, col2 = st.columns(2)
-        
         with col1:
             if st.button("🦟 Outside Field Activities (Peri)", use_container_width=True, type="primary"):
                 st.session_state['page'] = 'peri'
@@ -895,7 +898,6 @@ def render_home_page():
             if st.button("🧹 Sanitary & Toilet Reports", use_container_width=True, type="primary"):
                 st.session_state['page'] = 'sanitary'
                 st.rerun()
-
         with col2:
             if st.button("✈️ International Flights Screening", use_container_width=True, type="primary"):
                 st.session_state['page'] = 'flights'
