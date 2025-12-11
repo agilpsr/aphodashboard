@@ -78,52 +78,43 @@ def normalize_string(text):
     return re.sub(r'[^a-z0-9]', '', str(text).lower())
 
 def get_thumbnail_url(original_url):
+    """Creates a small 100px thumbnail for the table."""
     if not isinstance(original_url, str) or not original_url.startswith("http"): return None
-    # Resize to 100px for the table thumbnail
-    return f"https://wsrv.nl/?url={urllib.parse.quote(original_url)}&w=100&q=60"
+    return f"https://wsrv.nl/?url={urllib.parse.quote(original_url)}&w=150&q=60"
+
+def get_high_res_url(original_url):
+    """Creates a large 1200px High-Res image for the popup."""
+    if not isinstance(original_url, str) or not original_url.startswith("http"): return None
+    # w=1200 ensures it is large on screen, q=85 ensures good quality
+    return f"https://wsrv.nl/?url={urllib.parse.quote(original_url)}&w=1200&q=85"
 
 @st.dialog("🔬 Larvae Microscopic View", width="large")
 def show_image_popup(row_data):
-    # Mapping keys - ensure these match your Excel headers exactly
-    col_genus = "Select the Genus:"
-    col_species = "Select the Species:"
-    col_container = "Type of container the sample was collected from"
-    col_submitted = "_submitted_by"
-    
-    # Extract Data with fallbacks
-    genus = row_data.get(col_genus)
-    species = row_data.get(col_species)
-    container = row_data.get(col_container)
-    submitted_by = row_data.get(col_submitted)
-    address = row_data.get('Calculated_Address') # This comes from our helper column
-    img_url = row_data.get('Original_Image_URL')
+    # Data Extraction
+    genus = row_data.get("Select the Genus:", 'N/A')
+    species = row_data.get("Select the Species:", 'N/A')
+    container = row_data.get("Type of container the sample was collected from", 'N/A')
+    submitted_by = row_data.get("_submitted_by", 'N/A')
+    address = row_data.get('Calculated_Address', 'N/A')
+    original_url = row_data.get('Original_Image_URL')
 
-    # 1. HEADER
-    st.markdown(f"### {genus if pd.notna(genus) else 'Unknown Genus'} ({species if pd.notna(species) else ''})")
-    
-    # 2. FULL WIDTH IMAGE (Maximized Size)
-    if img_url and str(img_url).startswith('http'):
-        # using use_container_width=True inside a large dialog makes it big
-        st.image(img_url, caption="Microscopic View (Full Resolution)", use_container_width=True)
+    # 1. DETAILS ROW (Top)
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.info(f"**📍 Address:**\n{address}")
+    with c2:
+        st.warning(f"**🪣 Container:**\n{container}")
+    with c3:
+        st.success(f"**👤 Submitted By:**\n{submitted_by}")
+
+    st.markdown(f"### {genus} ({species})")
+
+    # 2. HIGH RES IMAGE (Bottom)
+    if original_url:
+        high_res_link = get_high_res_url(original_url)
+        st.image(high_res_link, caption="Full Resolution Microscopic View", use_container_width=True)
     else:
-        st.warning("⚠️ No image available for this entry.")
-
-    st.divider()
-
-    # 3. DETAILS ROW (Below Image)
-    k1, k2, k3 = st.columns(3)
-    
-    with k1:
-        st.markdown("**📍 Address / Location**")
-        st.info(f"{address if pd.notna(address) else 'N/A'}")
-
-    with k2:
-        st.markdown("**🪣 Container Type**")
-        st.warning(f"{container if pd.notna(container) else 'N/A'}")
-
-    with k3:
-        st.markdown("**👤 Submitted By**")
-        st.success(f"{submitted_by if pd.notna(submitted_by) else 'N/A'}")
+        st.warning("⚠️ No image URL found.")
 
 def get_base64_of_bin_file(bin_file):
     with open(bin_file, 'rb') as f:
