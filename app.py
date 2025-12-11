@@ -10,6 +10,7 @@ from streamlit_folium import st_folium
 import xlsxwriter
 from PIL import Image
 import base64 
+import datetime
 
 # --- 1. SETUP PAGE CONFIGURATION ---
 st.set_page_config(page_title="APHO Tiruchirappalli Dashboard", layout="wide")
@@ -38,6 +39,11 @@ SECTION_CONFIG = {
     'flights': {
         'title': 'International Flights Screened',
         'surv_url': 'https://kf.kobotoolbox.org/api/v2/assets/aHdVBAGwFvJwpTaATAZN8v/export-settings/esFbR4cbEQXToCUwLfFGbV4/data.csv',
+        'id_url': None
+    },
+    'anti_larval': {
+        'title': 'Anti-Larval Action Reports',
+        'surv_url': None,
         'id_url': None
     }
 }
@@ -118,11 +124,36 @@ def get_base64_of_bin_file(bin_file):
 
 # --- FILE HANDLERS ---
 def get_pdf_bytes(filename):
+    """Reads a local PDF file into bytes for download/viewing."""
     try:
         with open(filename, 'rb') as f:
             return f.read()
     except FileNotFoundError:
         return None
+
+# --- NEW: ANTI-LARVAL REPORT MODAL ---
+@st.dialog("➕ Add New Action Report")
+def show_add_report_dialog():
+    with st.form("add_action_report_form"):
+        st.write("Enter details for the monthly Anti-Larval Action Report.")
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            report_month = st.selectbox("Month", ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"])
+        with c2:
+            report_year = st.number_input("Year", min_value=2020, max_value=2030, value=datetime.date.today().year)
+            
+        summary = st.text_area("Summary of Actions Taken", height=150, placeholder="Describe measures taken, areas covered, chemicals used, etc.")
+        
+        uploaded_file = st.file_uploader("Upload Report File (Excel)", type=['xlsx', 'xls'])
+        
+        submitted = st.form_submit_button("Submit Report")
+        
+        if submitted:
+            # Here you would typically save to a database or cloud storage.
+            # Since this is a stateless demo, we just show a success message.
+            st.success(f"Report for {report_month} {report_year} submitted successfully!")
+            st.rerun()
 
 # --- GLOBAL REPORT FUNCTION ---
 def generate_report_df(df_source, date_col, col_username, selected_key, col_premises, col_subzone, col_street, current_config):
@@ -248,8 +279,37 @@ def generate_narrative_summary(df, selected_key, date_col, col_street, col_subzo
             
     return "\n\n".join(narrative)
 
+# --- PASSWORD FUNCTION ---
+def check_password_on_home():
+    # Placeholder
+    return True
+
 # --- MAIN DASHBOARD RENDERER ---
 def render_dashboard(selected_key):
+    st.markdown("""<style>.block-container { margin-top: 2rem !important; padding-top: 1rem !important; }</style>""", unsafe_allow_html=True)
+
+    current_config = SECTION_CONFIG[selected_key]
+    st.title(current_config['title'])
+
+    # --- ANTI-LARVAL ACTION REPORTS (New Section) ---
+    if selected_key == 'anti_larval':
+        st.markdown("### Monthly Action Reports Repository")
+        
+        c1, c2 = st.columns([3, 1])
+        with c2:
+            if st.button("➕ Add New Report", use_container_width=True):
+                show_add_report_dialog()
+        
+        # Placeholder Data (Replace with DB or File storage in future)
+        st.info("No reports have been uploaded yet.")
+        
+        # Example of how it would look with data:
+        # data = {'Month': ['January', 'February'], 'Year': [2025, 2025], 'Summary': ['Routine spray conducted.', 'Fogging done in Sector 4.'], 'File': ['Link', 'Link']}
+        # st.dataframe(pd.DataFrame(data), use_container_width=True)
+        
+        st.stop()
+    # -----------------------------------------------
+
     # --- ZONING MAP BUTTON ---
     if selected_key == 'peri':
         pdf_file_name = "zoning.pdf"
@@ -272,9 +332,6 @@ def render_dashboard(selected_key):
         else:
             st.warning(f"File '{pdf_file_name}' not found. Ensure it is uploaded to the root directory.")
     # --------------------------
-
-    current_config = SECTION_CONFIG[selected_key]
-    st.title(current_config['title'])
 
     with st.spinner('Fetching Surveillance data...'):
         df = load_kobo_data(current_config['surv_url'])
@@ -305,6 +362,7 @@ def render_dashboard(selected_key):
         for c in ['today', 'start', '_submission_time']:
              if c in col_map_lower: date_col = col_map_lower[c]; break
 
+
     # Date Filter (Used by ALL sections)
     if date_col:
         df_filtered[date_col] = pd.to_datetime(df_filtered[date_col])
@@ -327,9 +385,6 @@ def render_dashboard(selected_key):
         # ------------------------------------
 
         # --- DYNAMIC COLUMN SEARCH ---
-        # Look for "Flight_Duty_personnel" (case-insensitive, strip whitespace)
-        # Look for "Deputy" (case-insensitive, strip whitespace)
-        
         clean_cols = {c.strip().lower(): c for c in df.columns}
         
         staff1_col = clean_cols.get("flight_duty_personnel") 
@@ -558,12 +613,6 @@ def render_dashboard(selected_key):
         with st.expander("🔬 Larvae Identification Data (Click to Expand)", expanded=False):
             df_id = load_kobo_data(current_config['id_url'])
             
-            # --- DEBUG EXPANDER ---
-            with st.expander("🛠️ Debug: View Data Headers"):
-                st.write("Here are the exact column names in your data:")
-                st.write(df_id.columns.tolist())
-            # ---------------------
-
             if not df_id.empty:
                 # 1. Define Clean Targets
                 COL_GENUS = "Select the Genus:".strip()
@@ -731,7 +780,7 @@ def render_dashboard(selected_key):
     summary_text = generate_narrative_summary(df_filtered, selected_key, date_col, col_street, col_subzone, col_premises)
     st.markdown(summary_text)
 
-# --- HOME PAGE LOGIC (MAIN APP ROUTER) ---
+# --- HOME PAGE LOGIC ---
 def render_home_page():
     # --- CSS: REMOVE BACKGROUND IMAGE ---
     st.markdown("""
@@ -753,14 +802,13 @@ def render_home_page():
     st.divider()
     
     # 1. Check if a page is selected
-    if st.session_state.get('page') not in ['peri', 'intra', 'flights']:
+    if st.session_state.get('page') not in ['peri', 'intra', 'flights', 'anti_larval']:
         
         # 2. Render Navigation Buttons
         st.header("Select Activity Section")
-        _, col_buttons, _ = st.columns([1, 2, 1])
+        col1, col2 = st.columns(2)
         
-        with col_buttons:
-            # Use buttons to set the page state and trigger rerun
+        with col1:
             if st.button("🦟 Outside Field Activities (Peri)", use_container_width=True, type="primary"):
                 st.session_state['page'] = 'peri'
                 st.rerun()
@@ -768,14 +816,18 @@ def render_home_page():
             if st.button("✈️ Inside Field Activities (Intra)", use_container_width=True, type="primary"):
                 st.session_state['page'] = 'intra'
                 st.rerun()
-            st.markdown("<br>", unsafe_allow_html=True)
+
+        with col2:
             if st.button("✈️ International Flights Screening", use_container_width=True, type="primary"):
                 st.session_state['page'] = 'flights'
+                st.rerun()
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🛡️ Anti-Larval Action Reports", use_container_width=True, type="primary"):
+                st.session_state['page'] = 'anti_larval'
                 st.rerun()
                 
     else:
         # 3. Render the specific dashboard
-        # Add a "Back to Home" button to the sidebar
         if st.sidebar.button("🏠 Back to Home", key="back_to_home_button"):
             st.session_state['page'] = 'home'
             st.rerun()
@@ -786,5 +838,4 @@ def render_home_page():
 if 'page' not in st.session_state:
     st.session_state['page'] = 'home'
 
-# This logic ensures only ONE of the navigation screens or dashboards is rendered.
 render_home_page()
