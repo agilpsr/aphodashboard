@@ -398,4 +398,246 @@ def render_dashboard(selected_key):
             col_container = "Type of container the sample was collected from"
 
             if date_col_id: df_id[date_col_id] = pd.to_datetime(df_id[date_col_id])
-            df_
+            df_display = pd.DataFrame()
+            df_display['Date'] = df_id[date_col_id].dt.date if date_col_id else 'N/A'
+            df_display['Address'] = df_id[col_address_id] if col_address_id != 'N/A' else 'N/A'
+            df_display['Genus'] = df_id[col_genus] if col_genus in df_id.columns else 'N/A'
+            df_display['Species'] = df_id[col_species] if col_species in df_id.columns else 'N/A'
+            
+            if col_img:
+                df_display['Thumbnail'] = df_id[col_img].apply(get_thumbnail_url)
+                df_id['Original_Image_URL'] = df_id[col_img]
+            else:
+                df_display['Thumbnail'] = None
+                df_id['Original_Image_URL'] = None
+
+            df_display = df_display.reset_index(drop=True)
+            df_display.index += 1
+            df_display.index.name = "S.No"
+            df_display = df_display.reset_index()
+            df_id['Calculated_Address'] = df_display['Address']
+            
+            st.info("💡 Click on a row to view full details and image.")
+            event = st.dataframe(
+                df_display,
+                column_order=["S.No", "Date", "Address", "Thumbnail", "Genus", "Species"],
+                column_config={"Thumbnail": st.column_config.ImageColumn("Microscopic Image", width="small")},
+                hide_index=True, use_container_width=True, on_select="rerun", selection_mode="single-row"
+            )
+            if len(event.selection.rows) > 0:
+                selected_index = event.selection.rows[0]
+                original_row = df_id.iloc[selected_index]
+                show_image_popup(original_row)
+
+            st.divider()
+            c1, c2 = st.columns(2)
+            if col_genus in df_id.columns:
+                c1.write("#### Genus Distribution")
+                genus_counts = df_id[col_genus].value_counts().reset_index()
+                genus_counts.columns = ['Genus', 'Count']
+                fig_g = px.pie(genus_counts, values='Count', names='Genus', hole=0.4)
+                c1.plotly_chart(fig_g, use_container_width=True)
+            if col_container in df_id.columns:
+                c2.write("#### Container Distribution")
+                cont_data = df_id[df_id[col_container].notna() & (df_id[col_container] != "")]
+                cont_counts = cont_data[col_container].value_counts().reset_index()
+                cont_counts.columns = ['Container Type', 'Count']
+                fig_c = px.pie(cont_counts, values='Count', names='Container Type', hole=0.4)
+                c2.plotly_chart(fig_c, use_container_width=True)
+        else:
+            st.info("No identification data available.")
+
+    # --- REPORT GENERATOR FUNC ---
+    def generate_report_df(df_source, report_period_name):
+        with st.spinner("Fetching Identification Data..."):
+            df_id_rep = load_kobo_data(current_config['id_url'])
+            id_date_col = next((c for c in df_id_rep.columns if 'date' in c.lower() or 'today' in c.lower()), None)
+            if id_date_col:
+                df_id_rep[id_date_col] = pd.to_datetime(df_id_rep[id_date_col])
+                df_id_rep['join_date'] = df_id_rep[id_date_col].dt.date
+        
+        unique_dates = sorted(df_source[date_col].dt.date.unique())
+        report_data = []
+        for i, day in enumerate(unique_dates, 1):
+            df_day = df_source[df_source[date_col].dt.date == day]
+            staffs = ", ".join(df_day[col_username].dropna().unique().astype(str)) if col_username in df_day else ""
+            
+            loc_list = ""
+            street_list = ""
+            if selected_key == 'intra' and col_premises and col_premises in df_day:
+                loc_list = ", ".join(df_day[col_premises].dropna().unique().astype(str))
+            elif selected_key == 'peri' and col_subzone and col_subzone in df_day:
+                loc_list = ", ".join(df_day[col_subzone].dropna().unique().astype(str))
+            if col_street and col_street in df_day.columns:
+                street_list = ", ".join(df_day[col_street].dropna().astype(str).unique())
+                
+            d_dry = df_day['dry_cont_calc'].sum()
+            d_wet = df_day['wet_cont_calc'].sum()
+            
+            if selected_key == 'intra':
+                if col_premises in df_day.columns:
+                    df_day['premise_clean'] = df_day[col_premises].apply(normalize_string)
+                    df_day_grp = df_day.groupby('premise_clean').agg({'pos_house_calc':'max', 'pos_cont_calc':'sum', 'wet_cont_calc':'sum'})
+                    cnt_entries = len(df_day_grp)
+                    cnt_pos = (df_day_grp['pos_house_calc'] > 0).sum()
+                    d_pos_cont = df_day_grp['pos_cont_calc'].sum()
+                    d_wet_sum = df_day_grp['wet_cont_calc'].sum()
+                    idx_hi = (cnt_pos / cnt_entries * 100) if cnt_entries > 0 else 0
+                    idx_ci = (d_pos_cont / d_wet_sum * 100) if d_wet_sum > 0 else 0
+                    idx_bi = (d_pos_cont / cnt_entries * 100) if cnt_entries > 0 else 0
+                else: cnt_entries, cnt_pos, idx_hi, idx_ci, idx_bi = 0, 0, 0, 0, 0
+            else:
+                cnt_entries = len(df_day)
+                cnt_pos = (df_day['pos_house_calc'] > 0).sum()
+                d_pos_cont = df_day['pos_cont_calc'].sum()
+                idx_hi = (cnt_pos / cnt_entries * 100) if cnt_entries > 0 else 0
+                idx_ci = (d_pos_cont / d_wet * 100) if d_wet > 0 else 0
+                idx_bi = (d_pos_cont / cnt_entries * 100) if cnt_entries > 0 else 0
+
+            genus_list = ""
+            if not df_id_rep.empty and 'join_date' in df_id_rep.columns:
+                day_id = df_id_rep[df_id_rep['join_date'] == day]
+                g_col = next((c for c in day_id.columns if "Genus" in c), None)
+                if g_col: genus_list = ", ".join(day_id[g_col].dropna().astype(str).tolist())
+
+            report_data.append({
+                "Serial No": i, "Date": day, "Count": cnt_entries, "Staffs": staffs,
+                "Locations": loc_list, "Streets": street_list, "Dry": int(d_dry), "Wet": int(d_wet),
+                "Positives": int(cnt_pos), "HI/PI": round(idx_hi, 2), "CI": round(idx_ci, 2),
+                "BI": round(idx_bi, 2), "Genuses": genus_list
+            })
+        return pd.DataFrame(report_data)
+
+    # --- STAFF PERFORMANCE REPORT (COLLAPSIBLE) ---
+    with st.expander("👮 Staff Performance Report (Click to Expand)", expanded=False):
+        if col_username in df_filtered.columns:
+            staff_group = df_filtered.groupby(col_username)
+            staff_perf = pd.DataFrame(staff_group[date_col].apply(lambda x: x.dt.date.nunique()))
+            staff_perf.columns = ['Days Worked']
+            def get_staff_name(u): return STAFF_NAMES.get(str(u).strip().lower(), u)
+            staff_perf['Name'] = staff_perf.index.map(get_staff_name)
+            staff_perf['Total Entries'] = staff_group[col_username].count()
+            staff_perf['Positive Found'] = staff_group['pos_house_calc'].apply(lambda x: (x > 0).sum())
+            staff_perf['Positive Containers'] = staff_group['pos_cont_calc'].sum()
+            total_searched = staff_group['wet_cont_calc'].sum()
+            staff_perf['Container Index'] = (staff_perf['Positive Containers'] / total_searched.replace(0, 1) * 100).round(2)
+            try:
+                with st.spinner("Syncing Larvae ID Data..."):
+                    df_id_sync = load_kobo_data(current_config['id_url'])
+                    if not df_id_sync.empty and col_username in df_id_sync.columns:
+                        df_id_sync['clean_user'] = df_id_sync[col_username].astype(str).str.strip().str.lower()
+                        id_counts = df_id_sync.groupby('clean_user').size().rename('Larvae ID Entries')
+                        temp_index = staff_perf.index.astype(str).str.strip().str.lower()
+                        staff_perf['Larvae ID Entries'] = temp_index.map(id_counts).fillna(0).astype(int)
+                    else: staff_perf['Larvae ID Entries'] = 0
+            except: staff_perf['Larvae ID Entries'] = 0
+            staff_perf = staff_perf.reset_index()
+            staff_perf.index += 1
+            staff_perf.index.name = 'S.No'
+            staff_perf = staff_perf.reset_index()
+            final_cols_staff = ['S.No', 'Name', 'Days Worked', 'Total Entries', 'Positive Found', 'Positive Containers', 'Container Index', 'Larvae ID Entries']
+            staff_final = staff_perf[[c for c in final_cols_staff if c in staff_perf.columns]]
+            st.dataframe(staff_final, use_container_width=True)
+            st.download_button("Download Staff Excel", to_excel(staff_final), "Staff_Performance.xlsx")
+        else: st.warning("Username column not found.")
+
+    # --- MONTHLY & FORTNIGHTLY REPORTS (COLLAPSIBLE) ---
+    c_month, c_fort = st.columns(2)
+    with c_month:
+        with st.expander("📅 Monthly Report (Click to Expand)", expanded=False):
+            if date_col:
+                df_rep_raw = df.copy()
+                df_rep_raw[date_col] = pd.to_datetime(df_rep_raw[date_col])
+                for col, raw_col in [('pos_house_calc', col_pos_house_raw), ('pos_cont_calc', col_pos_cont_raw), ('wet_cont_calc', col_wet_cont_raw)]:
+                    df_rep_raw[col] = pd.to_numeric(df_rep_raw[raw_col], errors='coerce').fillna(0) if raw_col in df_rep_raw.columns else 0
+                df_rep_raw['dry_cont_calc'] = pd.to_numeric(df_rep_raw[col_dry_cont_raw], errors='coerce').fillna(0) if col_dry_cont_raw in df_rep_raw.columns else 0
+                df_rep_raw['Month_Year'] = df_rep_raw[date_col].dt.strftime('%Y-%m')
+                sel_mon = st.selectbox("Select Month:", sorted(df_rep_raw['Month_Year'].unique(), reverse=True))
+                if sel_mon:
+                    df_m = df_rep_raw[df_rep_raw['Month_Year'] == sel_mon].copy()
+                    rep_df = generate_report_df(df_m, sel_mon)
+                    st.dataframe(rep_df, hide_index=True)
+                    st.download_button("Download Excel", to_excel(rep_df), "Monthly.xlsx")
+
+    with c_fort:
+        with st.expander("📆 Fortnight Report (Click to Expand)", expanded=False):
+            if date_col:
+                df_ft = df.copy()
+                df_ft[date_col] = pd.to_datetime(df_ft[date_col])
+                for col, raw_col in [('pos_house_calc', col_pos_house_raw), ('pos_cont_calc', col_pos_cont_raw), ('wet_cont_calc', col_wet_cont_raw)]:
+                    df_ft[col] = pd.to_numeric(df_ft[raw_col], errors='coerce').fillna(0) if raw_col in df_ft.columns else 0
+                df_ft['dry_cont_calc'] = pd.to_numeric(df_ft[col_dry_cont_raw], errors='coerce').fillna(0) if col_dry_cont_raw in df_ft.columns else 0
+
+                df_ft['Month_Str'] = df_ft[date_col].dt.strftime('%B %Y')
+                df_ft['Label'] = df_ft.apply(lambda x: f"First Half {x['Month_Str']}" if x[date_col].day <= 15 else f"Second Half {x['Month_Str']}", axis=1)
+                df_ft = df_ft.sort_values(by=date_col, ascending=False)
+                sel_ft = st.selectbox("Select Fortnight:", df_ft['Label'].unique())
+                if sel_ft:
+                    df_sft = df_ft[df_ft['Label'] == sel_ft].copy()
+                    ft_rep = generate_report_df(df_sft, sel_ft)
+                    st.dataframe(ft_rep, hide_index=True)
+                    st.download_button("Download Excel", to_excel(ft_rep), "Fortnightly.xlsx")
+
+    # --- EXECUTIVE SUMMARY (COLLAPSIBLE) ---
+    with st.expander("📝 Executive Summary (Click to Expand)", expanded=False):
+        summary_text = generate_narrative_summary(df_filtered, selected_key, date_col, col_street, col_subzone, col_premises)
+        st.markdown(summary_text)
+
+# --- HOME PAGE LOGIC ---
+def render_home_page():
+    try:
+        bin_str = get_base64_of_bin_file("logo.png")
+        page_bg_img = f"""
+        <style>
+        .stApp {{
+            background-image: url("data:image/png;base64,{bin_str}");
+            background-size: cover;
+            background-position: center center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+        }}
+        .block-container {{
+            background-color: rgba(255, 255, 255, 0.90);
+            border-radius: 20px;
+            padding: 2rem;
+            max-width: 800px;
+            margin: auto;
+            margin-top: 45vh; 
+        }}
+        </style>
+        """
+        st.markdown(page_bg_img, unsafe_allow_html=True)
+    except:
+        st.warning("Background image 'logo.png' not found on GitHub.")
+
+    is_authenticated = check_password_on_home()
+    
+    if is_authenticated:
+        st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>AIRPORT HEALTH ORGANISATION</h1>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align: center; color: #1E3A8A;'>TIRUCHIRAPPALLI INTERNATIONAL AIRPORT</h3>", unsafe_allow_html=True)
+        
+        st.divider()
+        
+        _, col_buttons, _ = st.columns([1, 2, 1])
+        with col_buttons:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🦟 Outside Field Activities (Peri)", use_container_width=True, type="primary"):
+                st.session_state['page'] = 'peri'
+                st.rerun()
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("✈️ Inside Field Activities (Intra)", use_container_width=True, type="primary"):
+                st.session_state['page'] = 'intra'
+                st.rerun()
+
+# --- APP ENTRY POINT ---
+if 'page' not in st.session_state:
+    st.session_state['page'] = 'home'
+
+if st.session_state['page'] == 'home':
+    render_home_page()
+else:
+    if st.session_state.get("password_correct", False):
+        render_dashboard(st.session_state['page'])
+    else:
+        st.session_state['page'] = 'home'
+        st.rerun()
