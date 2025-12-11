@@ -337,7 +337,7 @@ def render_dashboard(selected_key):
             ci_val = (df_grouped['pos_cont_calc'].sum() / df_grouped['wet_cont_calc'].sum() * 100) if df_grouped['wet_cont_calc'].sum() > 0 else 0
             bi_val = (df_grouped['pos_cont_calc'].sum() / total_unique_premises * 100) if total_unique_premises > 0 else 0
             df_for_graphs = df_grouped.copy()
-            df_for_graphs['is_positive_premise'] = (df_for_graphs['pos_house_calc'] > 0).astype(int)
+            df_for_graphs['is_positive_premise'] = (df_grouped['pos_house_calc'] > 0).astype(int)
             display_count, positive_count = total_unique_premises, positive_premises_count
         else: df_for_graphs = df_filtered.copy()
     else:
@@ -367,9 +367,19 @@ def render_dashboard(selected_key):
 
     # --- EXTENDED GRAPHS SECTION (COLLAPSIBLE) ---
     with st.expander("📊 Graphical Analysis (Click to Expand)", expanded=False):
-        graph_tabs = st.tabs(["📈 Trend Analysis", "🌍 Zone Stats", "🏘️ Subzone Stats", "🛣️ Street Stats", "🏢 Premises Stats"])
         
-        with graph_tabs[0]:
+        # --- DYNAMIC TAB DEFINITION ---
+        active_tab_labels = ["📈 Trend Analysis", "🌍 Zone Stats"]
+        
+        if selected_key == 'peri':
+            active_tab_labels.extend(["🏘️ Subzone Stats", "🛣️ Street Stats"])
+        elif selected_key == 'intra':
+            active_tab_labels.append("🏢 Premises Stats")
+            
+        graph_tabs = st.tabs(active_tab_labels)
+        current_tab_map = {label: i for i, label in enumerate(active_tab_labels)}
+
+        with graph_tabs[current_tab_map['📈 Trend Analysis']]:
             st.subheader("Trend Analysis: House Index (HI) over Time")
             if date_col and col_zone in df_filtered.columns:
                 df_trend = df_filtered.copy()
@@ -384,37 +394,43 @@ def render_dashboard(selected_key):
             else:
                 st.info("Insufficient data for Trend Analysis.")
 
-        def render_standard_charts(group_col, title_prefix):
-            if group_col not in df_for_graphs.columns:
-                st.warning(f"Column for {title_prefix} not found.")
-                return
-            aggs = {
-                'pos_cont_calc': 'sum', 
-                'wet_cont_calc': 'sum',
-                'pos_house_calc': lambda x: (x > 0).sum(),
-                'dry_cont_calc': 'count'
-            }
-            g = df_for_graphs.groupby(group_col).agg(aggs).rename(columns={'dry_cont_calc': 'Total Entries'})
-            g['HI'] = (g['pos_house_calc'] / g['Total Entries'] * 100).fillna(0)
-            g['CI'] = (g['pos_cont_calc'] / g['wet_cont_calc'].replace(0, 1) * 100).fillna(0)
-            g['BI'] = (g['pos_cont_calc'] / g['Total Entries'] * 100).fillna(0)
-            g = g.reset_index().sort_values('HI', ascending=False)
-            if len(g) > 20:
-                st.caption(f"Showing Top 20 {title_prefix}s by Activity")
-                g = g.head(20)
+        def render_standard_charts(group_col, title_prefix, tab_label):
+            # Check if this content belongs to the currently visible tab
+            if tab_label not in current_tab_map: return
+            
+            with graph_tabs[current_tab_map[tab_label]]:
+                if group_col not in df_for_graphs.columns:
+                    st.warning(f"Column for {title_prefix} not found.")
+                    return
+                aggs = {
+                    'pos_cont_calc': 'sum', 
+                    'wet_cont_calc': 'sum',
+                    'pos_house_calc': lambda x: (x > 0).sum(),
+                    'dry_cont_calc': 'count'
+                }
+                g = df_for_graphs.groupby(group_col).agg(aggs).rename(columns={'dry_cont_calc': 'Total Entries'})
+                g['HI'] = (g['pos_house_calc'] / g['Total Entries'] * 100).fillna(0)
+                g['CI'] = (g['pos_cont_calc'] / g['wet_cont_calc'].replace(0, 1) * 100).fillna(0)
+                g['BI'] = (g['pos_cont_calc'] / g['Total Entries'] * 100).fillna(0)
+                g = g.reset_index().sort_values('HI', ascending=False)
+                if len(g) > 20:
+                    st.caption(f"Showing Top 20 {title_prefix}s by Activity")
+                    g = g.head(20)
 
-            c1, c2 = st.columns(2)
-            c1.plotly_chart(plot_metric_bar(g, group_col, 'HI', f"{label_hi} by {title_prefix}", 'HI', 20), use_container_width=True)
-            c2.plotly_chart(plot_metric_bar(g, group_col, 'Total Entries', f"Total Houses/Premises Visited by {title_prefix}", 'Total Entries', None), use_container_width=True)
-            c3, c4 = st.columns(2)
-            c3.plotly_chart(plot_metric_bar(g, group_col, 'CI', f"Container Index (CI) by {title_prefix}", 'CI', 20), use_container_width=True)
-            c4.plotly_chart(plot_metric_bar(g, group_col, 'BI', f"Breteau Index (BI) by {title_prefix}", 'BI', 20), use_container_width=True)
+                c1, c2 = st.columns(2)
+                c1.plotly_chart(plot_metric_bar(g, group_col, 'HI', f"{label_hi} by {title_prefix}", 'HI', 20), use_container_width=True)
+                c2.plotly_chart(plot_metric_bar(g, group_col, 'Total Entries', f"Total Houses/Premises Visited by {title_prefix}", 'Total Entries', None), use_container_width=True)
+                c3, c4 = st.columns(2)
+                c3.plotly_chart(plot_metric_bar(g, group_col, 'CI', f"Container Index (CI) by {title_prefix}", 'CI', 20), use_container_width=True)
+                c4.plotly_chart(plot_metric_bar(g, group_col, 'BI', f"Breteau Index (BI) by {title_prefix}", 'BI', 20), use_container_width=True)
 
-        with graph_tabs[1]: render_standard_charts(col_zone, "Zone")
-        with graph_tabs[2]: render_standard_charts(col_subzone, "Subzone")
-        with graph_tabs[3]: render_standard_charts(col_street, "Street")
-        with graph_tabs[4]:
-            if selected_key == 'intra':
+        render_standard_charts(col_zone, "Zone", "🌍 Zone Stats")
+        render_standard_charts(col_subzone, "Subzone", "🏘️ Subzone Stats")
+        render_standard_charts(col_street, "Street", "🛣️ Street Stats")
+        
+        # Premises/Daily Activity Tab
+        if "🏢 Premises Stats" in current_tab_map:
+            with graph_tabs[current_tab_map['🏢 Premises Stats']]:
                 st.subheader("Daily Activity Analysis")
                 if date_col and date_col in df_for_graphs.columns and 'unique_premise_id' in df_for_graphs.columns:
                     daily_prem = df_for_graphs.groupby(date_col)['unique_premise_id'].nunique().reset_index()
@@ -426,9 +442,7 @@ def render_dashboard(selected_key):
                 
                 if col_premises in df_for_graphs.columns:
                     st.divider()
-                    render_standard_charts(col_premises, "Premise")
-            else:
-                st.info("Premises stats are primarily for Intra-Airport data.")
+                    render_standard_charts(col_premises, "Premise", "Premise Stats Placeholder") # Placeholder to render breakdown
 
     # --- MAP (COLLAPSIBLE) ---
     with st.expander("🌍 Geo-Spatial Map (Click to Expand)", expanded=False):
@@ -445,13 +459,17 @@ def render_dashboard(selected_key):
     with st.expander("🔬 Larvae Identification Data (Click to Expand)", expanded=False):
         df_id = load_kobo_data(current_config['id_url'])
         
+        # --- DEBUG EXPANDER ---
+        with st.expander("🛠️ Debug: View Data Headers"):
+            st.write("Here are the exact column names in your data:")
+            st.write(df_id.columns.tolist())
         # ---------------------
 
         if not df_id.empty:
             # 1. Define Clean Targets
             COL_GENUS = "Select the Genus:".strip()
             COL_SPECIES = "Select the Species:".strip()
-            COL_CONTAINER_LABEL = "Type of container in which the sample was collected from".strip()
+            COL_CONTAINER_LABEL = "Type of container in which the sample was collected from".strip() # Target (Cleaned)
             COL_SUBMITTED = "_submitted_by".strip()
 
             # 2. Find Actual Column Names (Robust Search)
@@ -459,7 +477,7 @@ def render_dashboard(selected_key):
 
             col_genus = clean_to_orig_map.get(COL_GENUS)
             col_species = clean_to_orig_map.get(COL_SPECIES)
-            col_container = clean_to_orig_map.get(COL_CONTAINER_LABEL) # FIX IS APPLIED HERE
+            col_container = clean_to_orig_map.get(COL_CONTAINER_LABEL) # FIX: Uses the cleaned key
             col_submitted = clean_to_orig_map.get(COL_SUBMITTED)
             # --------------------------------------
 
@@ -495,13 +513,8 @@ def render_dashboard(selected_key):
             event = st.dataframe(
                 df_display,
                 column_order=["S.No", "Date", "Address", "Thumbnail", "Genus", "Species"],
-                column_config={
-                    "Thumbnail": st.column_config.ImageColumn("Microscopic Image", width="small"),
-                },
-                hide_index=True,
-                use_container_width=True,
-                on_select="rerun",
-                selection_mode="single-row"
+                column_config={"Thumbnail": st.column_config.ImageColumn("Microscopic Image", width="small")},
+                hide_index=True, use_container_width=True, on_select="rerun", selection_mode="single-row"
             )
 
             if len(event.selection.rows) > 0:
@@ -565,7 +578,6 @@ def render_dashboard(selected_key):
             staff_perf.index.name = 'S.No'
             staff_perf = staff_perf.reset_index()
             
-            # REMOVED Larvae ID Entries column
             final_cols_staff = ['S.No', 'Name', 'Days Worked', 'Total Entries', 'Positive Found', 'Positive Containers', 'Container Index']
             
             staff_final = staff_perf[[c for c in final_cols_staff if c in staff_perf.columns]]
