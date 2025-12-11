@@ -15,6 +15,10 @@ import datetime
 # --- 1. SETUP PAGE CONFIGURATION ---
 st.set_page_config(page_title="APHO Tiruchirappalli Dashboard", layout="wide")
 
+# --- INITIALIZE SESSION STATE FOR REPORTS ---
+if 'reports' not in st.session_state:
+    st.session_state['reports'] = []
+
 # --- STAFF NAME MAPPING ---
 STAFF_NAMES = {
     'abhiguptak': 'Abhishek Gupta', 'arunhealthinspector': 'Arun', 'chandru1426': 'Chandru',
@@ -44,7 +48,7 @@ SECTION_CONFIG = {
     'anti_larval': {
         'title': 'Anti-Larval Action Reports',
         # Updated URL for Action Reports
-        'surv_url': 'https://kf.kobotoolbox.org/api/v2/assets/az3jC73Chq5yPKMhM73eMm/export-settings/estGM8ZLCov9aQTaMdBNuNV/data.csv',
+        'surv_url': 'https://kf.kobotoolbox.org/api/v2/assets/az3jC73Chq5yPKMhM73eMm/export-settings/esJCVJu8sXKCxUfywczgC4x/data.csv',
         'id_url': None
     }
 }
@@ -267,39 +271,35 @@ def render_dashboard(selected_key):
     current_config = SECTION_CONFIG[selected_key]
     st.title(current_config['title'])
 
-    # --- ANTI-LARVAL ACTION REPORTS (New Section) ---
+    # --- ANTI-LARVAL ACTION REPORTS (Dynamic Data Source) ---
     if selected_key == 'anti_larval':
-        # Load data from the provided Kobo URL
-        with st.spinner("Fetching Action Reports..."):
-            df_reports = load_kobo_data(current_config['surv_url'])
-
-        if not df_reports.empty:
-            # Look for the PDF column
-            pdf_col = "upload_action_taken_report_pd"
+        with st.spinner('Fetching Action Reports...'):
+            df_action = load_kobo_data(current_config['surv_url'])
             
-            # Simple dataframe for display
-            display_df = df_reports.copy()
+        if df_action.empty:
+            st.info("No reports found.")
+            st.stop()
             
-            # Identify columns to display - try to find Date, Month, Year if possible, otherwise show all
-            cols_to_show = [c for c in display_df.columns if c not in ['_id', '_uuid', '_submission_time', '_index', '_parent_index', 'start', 'end', 'username', 'deviceid']]
-            
-            # If the PDF column exists, format it as a link
-            if pdf_col in display_df.columns:
-                # Kobo stores file URLs; we can just display the raw URL or try to make it a link if Streamlit supports it easily in dataframe
-                # For better UX, let's create a clickable column using Streamlit's LinkColumn config
-                
-                st.dataframe(
-                    display_df[cols_to_show],
-                    column_config={
-                        pdf_col: st.column_config.LinkColumn("Download Report", display_text="Open PDF")
-                    },
-                    use_container_width=True
-                )
-            else:
-                st.dataframe(display_df[cols_to_show], use_container_width=True)
-                st.warning(f"Column '{pdf_col}' not found in the dataset.")
+        # Display the data
+        st.subheader("Monthly Action Reports")
+        
+        # Configure columns for display
+        # Look for PDF column roughly
+        pdf_col = next((c for c in df_action.columns if 'pdf' in c.lower() or 'file' in c.lower()), None)
+        
+        # We need to make the PDF column clickable
+        if pdf_col:
+            df_action['Download Link'] = df_action[pdf_col].apply(
+                lambda x: f'<a href="{x}" target="_blank">📥 Download PDF</a>' if pd.notna(x) else "No File"
+            )
+            # Move Download Link to front or specific position if needed
+            cols = [c for c in df_action.columns if c != pdf_col and c != 'Download Link']
+            df_display = df_action[['Download Link'] + cols]
         else:
-            st.info("No reports available to display.")
+            df_display = df_action
+
+        # Render HTML table to allow links to work
+        st.write(df_display.to_html(escape=False, index=False), unsafe_allow_html=True)
         
         st.stop()
     # -----------------------------------------------
