@@ -615,7 +615,8 @@ def render_dashboard(selected_key):
             
             staff_final = staff_perf[[c for c in final_cols_staff if c in staff_perf.columns]]
             st.dataframe(staff_final, use_container_width=True)
-            st.download_button("Download Staff Excel", to_excel(staff_final), "Staff_Performance.xlsx")
+            # --- FIX: Added unique key to download button ---
+            st.download_button("Download Staff Excel", to_excel(staff_final), "Staff_Performance.xlsx", key=f"staff_excel_download_{selected_key}")
         else: st.warning("Username column not found.")
 
     # --- MONTHLY & FORTNIGHTLY REPORTS (COLLAPSIBLE) ---
@@ -629,12 +630,13 @@ def render_dashboard(selected_key):
                     df_rep_raw[col] = pd.to_numeric(df_rep_raw[raw_col], errors='coerce').fillna(0) if raw_col in df_rep_raw.columns else 0
                 df_rep_raw['dry_cont_calc'] = pd.to_numeric(df_rep_raw[col_dry_cont_raw], errors='coerce').fillna(0) if col_dry_cont_raw in df_rep_raw.columns else 0
                 df_rep_raw['Month_Year'] = df_rep_raw[date_col].dt.strftime('%Y-%m')
-                sel_mon = st.selectbox("Select Month:", sorted(df_rep_raw['Month_Year'].unique(), reverse=True))
+                # --- FIX: Added unique key to selectbox ---
+                sel_mon = st.selectbox("Select Month:", sorted(df_rep_raw['Month_Year'].unique(), reverse=True), key=f"monthly_select_{selected_key}")
                 if sel_mon:
                     df_m = df_rep_raw[df_rep_raw['Month_Year'] == sel_mon].copy()
                     rep_df = generate_report_df(df_m, date_col, col_username, selected_key, col_premises, col_subzone, col_street, current_config)
                     st.dataframe(rep_df, hide_index=True)
-                    st.download_button("Download Excel", to_excel(rep_df), "Monthly.xlsx")
+                    st.download_button("Download Excel", to_excel(rep_df), "Monthly.xlsx", key=f"monthly_download_{selected_key}")
 
     with c_fort:
         with st.expander("📆 Fortnight Report (Click to Expand)", expanded=False):
@@ -648,12 +650,13 @@ def render_dashboard(selected_key):
                 df_ft['Month_Str'] = df_ft[date_col].dt.strftime('%B %Y')
                 df_ft['Label'] = df_ft.apply(lambda x: f"First Half {x['Month_Str']}" if x[date_col].day <= 15 else f"Second Half {x['Month_Str']}", axis=1)
                 df_ft = df_ft.sort_values(by=date_col, ascending=False)
-                sel_ft = st.selectbox("Select Fortnight:", df_ft['Label'].unique())
+                # --- FIX: Added unique key to selectbox ---
+                sel_ft = st.selectbox("Select Fortnight:", df_ft['Label'].unique(), key=f"fortnight_select_{selected_key}")
                 if sel_ft:
                     df_sft = df_ft[df_ft['Label'] == sel_ft].copy()
                     ft_rep = generate_report_df(df_sft, date_col, col_username, selected_key, col_premises, col_subzone, col_street, current_config)
                     st.dataframe(ft_rep, hide_index=True)
-                    st.download_button("Download Excel", to_excel(ft_rep), "Fortnightly.xlsx")
+                    st.download_button("Download Excel", to_excel(ft_rep), "Fortnightly.xlsx", key=f"fortnight_download_{selected_key}")
 
     # --- EXECUTIVE SUMMARY (ALWAYS OPEN) ---
     st.divider()
@@ -673,21 +676,14 @@ def render_home_page():
             background-repeat: no-repeat;
             background-attachment: fixed;
         }}
-        .block-container {{
-            background-color: rgba(255, 255, 255, 0.90);
-            border-radius: 20px;
-            padding: 2rem;
-            max-width: 800px;
-            margin: auto;
-            margin-top: 45vh; 
-        }}
+        /* REMOVED .block-container MAX-WIDTH RESTRICTION HERE TO MAXIMIZE DASHBOARD WIDTH */
         </style>
         """
         st.markdown(page_bg_img, unsafe_allow_html=True)
     except:
         st.warning("Background image 'logo.png' not found on GitHub.")
 
-    # AUTHENTICATION BYPASSED: is_authenticated is assumed True for rendering the dashboard
+    # AUTHENTICATION IS BYPASSED FOR STABILITY
     is_authenticated = True
     
     if is_authenticated:
@@ -697,7 +693,11 @@ def render_home_page():
         st.divider()
         
         # --- NEW MAIN DASHBOARD ROUTER ---
+        # Note: Tabs are rendered simultaneously, hence the need for unique keys in render_dashboard
         main_tabs = st.tabs(["🦟 Outside Field (Peri)", "✈️ Inside Field (Intra)", "✈️ International Flights"])
+        
+        # The sidebar will contain controls for the currently active tab
+        st.sidebar.button("🏠 Back to Home", key="home_sidebar_button")
         
         with main_tabs[0]:
             render_dashboard('peri')
