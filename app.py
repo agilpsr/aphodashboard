@@ -249,10 +249,22 @@ def generate_narrative_summary(df, selected_key, date_col, col_street, col_subzo
             
     return "\n\n".join(narrative)
 
-# --- PASSWORD FUNCTION (DELETED/BYPASSED) ---
+# --- PASSWORD FUNCTION ---
 def check_password_on_home():
-    # This function is now a placeholder and will not be called in the main flow
-    return True 
+    def password_entered():
+        # This function is not called in the current execution flow but kept for structure
+        if "password" in st.session_state and st.session_state["password"] == "Aphotrz@2025":
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]
+        else:
+            st.session_state["password_correct"] = False
+    
+    if st.session_state.get("password_correct", False): return True
+    
+    st.text_input("🔒 Enter Password to Login", type="password", on_change=password_entered, key="password")
+    if "password_correct" in st.session_state and not st.session_state["password_correct"]:
+        st.error("❌ Password incorrect")
+    return False
 
 # --- MAIN DASHBOARD RENDERER ---
 def render_dashboard(selected_key):
@@ -325,7 +337,6 @@ def render_dashboard(selected_key):
 
     if col_zone and col_zone in df_filtered.columns:
         opts = sorted(df_filtered[col_zone].dropna().unique().astype(str))
-        # --- FIX: Added unique keys to sidebar multiselects ---
         sel = st.sidebar.multiselect(f"Filter by Zone", opts, key=f"zone_filter_{selected_key}")
         if sel: df_filtered = df_filtered[df_filtered[col_zone].astype(str).isin(sel)]
     if col_subzone and col_subzone in df_filtered.columns:
