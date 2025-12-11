@@ -118,7 +118,6 @@ def get_base64_of_bin_file(bin_file):
 
 # --- FILE HANDLERS ---
 def get_pdf_bytes(filename):
-    """Reads a local PDF file into bytes for download/viewing."""
     try:
         with open(filename, 'rb') as f:
             return f.read()
@@ -249,27 +248,8 @@ def generate_narrative_summary(df, selected_key, date_col, col_street, col_subzo
             
     return "\n\n".join(narrative)
 
-# --- PASSWORD FUNCTION ---
-def check_password_on_home():
-    def password_entered():
-        if "password" in st.session_state and st.session_state["password"] == "Aphotrz@2025":
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]
-        else:
-            st.session_state["password_correct"] = False
-    
-    if st.session_state.get("password_correct", False): return True
-    
-    st.text_input("🔒 Enter Password to Login", type="password", on_change=password_entered, key="password")
-    if "password_correct" in st.session_state and not st.session_state["password_correct"]:
-        st.error("❌ Password incorrect")
-    return False
-
 # --- MAIN DASHBOARD RENDERER ---
 def render_dashboard(selected_key):
-    
-    current_config = SECTION_CONFIG[selected_key]
-    
     # --- ZONING MAP BUTTON ---
     if selected_key == 'peri':
         pdf_file_name = "zoning.pdf"
@@ -293,6 +273,7 @@ def render_dashboard(selected_key):
             st.warning(f"File '{pdf_file_name}' not found. Ensure it is uploaded to the root directory.")
     # --------------------------
 
+    current_config = SECTION_CONFIG[selected_key]
     st.title(current_config['title'])
 
     with st.spinner('Fetching Surveillance data...'):
@@ -324,7 +305,6 @@ def render_dashboard(selected_key):
         for c in ['today', 'start', '_submission_time']:
              if c in col_map_lower: date_col = col_map_lower[c]; break
 
-
     # Date Filter (Used by ALL sections)
     if date_col:
         df_filtered[date_col] = pd.to_datetime(df_filtered[date_col])
@@ -341,25 +321,44 @@ def render_dashboard(selected_key):
     # --- FLIGHTS SCREENING SUMMARY (Special Case) ---
     if selected_key == 'flights':
         
-        staff1_col = "Flight_Duty_personnel"
-        staff2_col = "Deputy"
-        pax_col = next((col for col in df_filtered.columns if 'passenger' in col.lower() or 'pax' in col.lower() or 'number_of_passengers' in col.lower()), None)
+        # --- DEBUG EXPANDER TO SEE COLUMNS ---
+        with st.expander("🛠️ Debug: View Flight Data Columns", expanded=False):
+            st.write("Current DataFrame Columns:", df.columns.tolist())
+        # ------------------------------------
+
+        # --- DYNAMIC COLUMN SEARCH ---
+        # Look for "Flight_Duty_personnel" (case-insensitive, strip whitespace)
+        # Look for "Deputy" (case-insensitive, strip whitespace)
+        
+        clean_cols = {c.strip().lower(): c for c in df.columns}
+        
+        staff1_col = clean_cols.get("flight_duty_personnel") 
+        staff2_col = clean_cols.get("deputy")
+        
+        # Fallback search if exact keys are missing
+        if not staff1_col:
+             staff1_col = next((c for c in df.columns if "duty" in c.lower() and "personnel" in c.lower()), None)
+        if not staff2_col:
+             staff2_col = next((c for c in df.columns if "deputy" in c.lower()), None)
+
         
         # 1. STAFF FILTERS (Rendered Conditionally to sidebar)
-        if staff1_col in df_filtered.columns and staff2_col in df_filtered.columns:
+        if staff1_col and staff2_col:
             all_staff = pd.concat([df_filtered[staff1_col].dropna(), df_filtered[staff2_col].dropna()]).astype(str).unique().tolist()
             
             selected_personnel = st.sidebar.multiselect(
                 "Filter by Duty Personnel", 
-                all_staff, 
+                sorted(all_staff), 
                 key=f"personnel_filter_{selected_key}"
             )
             
             if selected_personnel:
                 # Apply the combined filter (OR logic)
-                mask = (df_filtered[staff1_col].isin(selected_personnel)) | \
-                       (df_filtered[staff2_col].isin(selected_personnel))
+                mask = (df_filtered[staff1_col].astype(str).isin(selected_personnel)) | \
+                       (df_filtered[staff2_col].astype(str).isin(selected_personnel))
                 df_filtered = df_filtered[mask]
+        else:
+            st.sidebar.warning("Staff columns not found. Filters disabled.")
 
         if df_filtered.empty:
             st.info("No data available for the selected filters.")
@@ -559,6 +558,12 @@ def render_dashboard(selected_key):
         with st.expander("🔬 Larvae Identification Data (Click to Expand)", expanded=False):
             df_id = load_kobo_data(current_config['id_url'])
             
+            # --- DEBUG EXPANDER ---
+            with st.expander("🛠️ Debug: View Data Headers"):
+                st.write("Here are the exact column names in your data:")
+                st.write(df_id.columns.tolist())
+            # ---------------------
+
             if not df_id.empty:
                 # 1. Define Clean Targets
                 COL_GENUS = "Select the Genus:".strip()
@@ -718,7 +723,7 @@ def render_dashboard(selected_key):
                 if sel_ft:
                     df_sft = df_ft[df_ft['Label'] == sel_ft].copy()
                     ft_rep = generate_report_df(df_sft, date_col, col_username, selected_key, col_premises, col_subzone, col_street, current_config)
-                    st.dataframe(rep_df, hide_index=True)
+                    st.dataframe(ft_rep, hide_index=True)
                     st.download_button("Download Excel", to_excel(ft_rep), "Fortnightly.xlsx", key=f"fortnight_download_{selected_key}")
 
     # --- EXECUTIVE SUMMARY (ALWAYS OPEN) ---
@@ -735,7 +740,6 @@ def render_home_page():
             background-image: none !important;
             background-color: white !important;
         }
-        /* Dashboard content now rests on the clean background */
         .main .block-container { 
             background-color: transparent !important; 
             border-radius: 0px !important;
@@ -744,46 +748,43 @@ def render_home_page():
         </style>
     """, unsafe_allow_html=True)
     
-    is_authenticated = True
+    st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>AIRPORT HEALTH ORGANISATION</h1>", unsafe_allow_html=True)
+    st.markdown("<h3 style='text-align: center; color: #1E3A8A;'>TIRUCHIRAPPALLI INTERNATIONAL AIRPORT</h3>", unsafe_allow_html=True)
+    st.divider()
     
-    if is_authenticated:
-        st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>AIRPORT HEALTH ORGANISATION</h1>", unsafe_allow_html=True)
-        st.markdown("<h3 style='text-align: center; color: #1E3A8A;'>TIRUCHIRAPPALLI INTERNATIONAL AIRPORT</h3>", unsafe_allow_html=True)
+    # 1. Check if a page is selected
+    if st.session_state.get('page') not in ['peri', 'intra', 'flights']:
         
-        st.divider()
+        # 2. Render Navigation Buttons
+        st.header("Select Activity Section")
+        _, col_buttons, _ = st.columns([1, 2, 1])
         
-        # 1. Check if a page is selected
-        if st.session_state.get('page') not in ['peri', 'intra', 'flights']:
-            
-            # 2. Render Navigation Buttons
-            st.header("Select Activity Section")
-            _, col_buttons, _ = st.columns([1, 2, 1])
-            
-            with col_buttons:
-                # Use buttons to set the page state and trigger rerun
-                if st.button("🦟 Outside Field Activities (Peri)", use_container_width=True, type="primary"):
-                    st.session_state['page'] = 'peri'
-                    st.rerun()
-                st.markdown("<br>", unsafe_allow_html=True)
-                if st.button("✈️ Inside Field Activities (Intra)", use_container_width=True, type="primary"):
-                    st.session_state['page'] = 'intra'
-                    st.rerun()
-                st.markdown("<br>", unsafe_allow_html=True)
-                if st.button("✈️ International Flights Screening", use_container_width=True, type="primary"):
-                    st.session_state['page'] = 'flights'
-                    st.rerun()
-                    
-        else:
-            # 3. Render the specific dashboard
-            # Add a "Back to Home" button to the sidebar
-            if st.sidebar.button("🏠 Back to Home", key="back_to_home_button"):
-                st.session_state['page'] = 'home'
+        with col_buttons:
+            # Use buttons to set the page state and trigger rerun
+            if st.button("🦟 Outside Field Activities (Peri)", use_container_width=True, type="primary"):
+                st.session_state['page'] = 'peri'
+                st.rerun()
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("✈️ Inside Field Activities (Intra)", use_container_width=True, type="primary"):
+                st.session_state['page'] = 'intra'
+                st.rerun()
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("✈️ International Flights Screening", use_container_width=True, type="primary"):
+                st.session_state['page'] = 'flights'
                 st.rerun()
                 
-            render_dashboard(st.session_state['page'])
+    else:
+        # 3. Render the specific dashboard
+        # Add a "Back to Home" button to the sidebar
+        if st.sidebar.button("🏠 Back to Home", key="back_to_home_button"):
+            st.session_state['page'] = 'home'
+            st.rerun()
+            
+        render_dashboard(st.session_state['page'])
 
 # --- APP ENTRY POINT (Page Router) ---
 if 'page' not in st.session_state:
     st.session_state['page'] = 'home'
 
+# This logic ensures only ONE of the navigation screens or dashboards is rendered.
 render_home_page()
