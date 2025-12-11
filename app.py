@@ -249,22 +249,10 @@ def generate_narrative_summary(df, selected_key, date_col, col_street, col_subzo
             
     return "\n\n".join(narrative)
 
-# --- PASSWORD FUNCTION ---
+# --- PASSWORD FUNCTION (DELETED/BYPASSED) ---
 def check_password_on_home():
-    def password_entered():
-        # FIX: Added defensive check to prevent KeyError
-        if "password" in st.session_state and st.session_state["password"] == "Aphotrz@2025":
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]
-        else:
-            st.session_state["password_correct"] = False
-    
-    if st.session_state.get("password_correct", False): return True
-    
-    st.text_input("🔒 Enter Password to Login", type="password", on_change=password_entered, key="password")
-    if "password_correct" in st.session_state and not st.session_state["password_correct"]:
-        st.error("❌ Password incorrect")
-    return False
+    # This function is now a placeholder and will not be called in the main flow
+    return True 
 
 # --- MAIN DASHBOARD RENDERER ---
 def render_dashboard(selected_key):
@@ -329,18 +317,20 @@ def render_dashboard(selected_key):
         df_filtered[date_col] = pd.to_datetime(df_filtered[date_col])
         min_date, max_date = df_filtered[date_col].min().date(), df_filtered[date_col].max().date()
         d1, d2 = st.sidebar.columns(2)
-        start_date = d1.date_input("Start", min_date)
-        end_date = d2.date_input("End", max_date)
+        # --- FIX: Added unique keys to sidebar date inputs ---
+        start_date = d1.date_input("Start", min_date, key=f"start_date_{selected_key}")
+        end_date = d2.date_input("End", max_date, key=f"end_date_{selected_key}")
         mask = (df_filtered[date_col].dt.date >= start_date) & (df_filtered[date_col].dt.date <= end_date)
         df_filtered = df_filtered.loc[mask]
 
     if col_zone and col_zone in df_filtered.columns:
         opts = sorted(df_filtered[col_zone].dropna().unique().astype(str))
-        sel = st.sidebar.multiselect(f"Filter by Zone", opts)
+        # --- FIX: Added unique keys to sidebar multiselects ---
+        sel = st.sidebar.multiselect(f"Filter by Zone", opts, key=f"zone_filter_{selected_key}")
         if sel: df_filtered = df_filtered[df_filtered[col_zone].astype(str).isin(sel)]
     if col_subzone and col_subzone in df_filtered.columns:
         opts = sorted(df_filtered[col_subzone].dropna().unique().astype(str))
-        sel = st.sidebar.multiselect(f"Filter by SubZone", opts)
+        sel = st.sidebar.multiselect(f"Filter by SubZone", opts, key=f"subzone_filter_{selected_key}")
         if sel: df_filtered = df_filtered[df_filtered[col_subzone].astype(str).isin(sel)]
 
     # Calcs
