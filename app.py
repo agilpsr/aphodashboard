@@ -6,6 +6,7 @@ import plotly.express as px
 import re
 import urllib.parse
 import folium
+from folium.plugins import Fullscreen  # <--- IMPORT ADDED HERE
 from streamlit_folium import st_folium
 import xlsxwriter
 from PIL import Image
@@ -704,10 +705,20 @@ def render_dashboard(selected_key):
             map_df = df_for_graphs.dropna(subset=[col_lat, col_lon]).copy()
             if not map_df.empty:
                 m = folium.Map(location=[map_df[col_lat].mean(), map_df[col_lon].mean()], zoom_start=13)
+                
+                # --- ADDED FULLSCREEN PLUGIN HERE ---
+                Fullscreen(
+                    position='topright',
+                    title='Expand me',
+                    title_cancel='Exit me',
+                    force_separate_button=True
+                ).add_to(m)
+                # ------------------------------------
+
                 for _, row in map_df.iterrows():
                     color = '#00ff00' if row['pos_house_calc'] == 0 else '#ff0000'
                     folium.CircleMarker([row[col_lat], row[col_lon]], radius=6, color=color, fill=True, fill_color=color).add_to(m)
-                st_folium(m, height=400)
+                st_folium(m, height=400, use_container_width=True)
 
     if current_config.get('id_url'):
         with st.expander("🔬 Larvae Identification Data", expanded=False):
