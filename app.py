@@ -120,6 +120,15 @@ def get_base64_of_bin_file(bin_file):
         data = f.read()
     return base64.b64encode(data).decode()
 
+# --- FILE HANDLERS ---
+def get_pdf_bytes(filename):
+    """Reads a local PDF file into bytes for download/viewing."""
+    try:
+        with open(filename, 'rb') as f:
+            return f.read()
+    except FileNotFoundError:
+        return None
+
 # --- GLOBAL REPORT FUNCTION ---
 def generate_report_df(df_source, date_col, col_username, selected_key, col_premises, col_subzone, col_street, current_config):
     with st.spinner("Fetching Identification Data..."):
@@ -266,6 +275,23 @@ def render_dashboard(selected_key):
     
     current_config = SECTION_CONFIG[selected_key]
     st.title(current_config['title'])
+
+    # --- ZONING MAP BUTTON ---
+    pdf_file_name = "zoning.pdf" if selected_key == 'peri' else "zoninginside.pdf"
+    pdf_bytes = get_pdf_bytes(pdf_file_name)
+    
+    if pdf_bytes:
+        st.download_button(
+            label="📄 View Zoning Map",
+            data=pdf_bytes,
+            file_name=pdf_file_name,
+            mime="application/pdf",
+            key='download_pdf',
+            help=f"Click to open the {pdf_file_name} PDF in a new tab."
+        )
+    else:
+        st.warning(f"File '{pdf_file_name}' not found. Ensure it is uploaded to the root directory.")
+    # --------------------------
 
     with st.spinner('Fetching Surveillance data...'):
         df = load_kobo_data(current_config['surv_url'])
@@ -470,7 +496,6 @@ def render_dashboard(selected_key):
             COL_SUBMITTED = "_submitted_by".strip()
 
             # 2. Find Actual Column Names (Robust Search - strips all spaces from headers)
-            # Create a dictionary mapping the cleaned header (key) to the original header (value)
             clean_to_orig_map = {col.strip(): col for col in df_id.columns}
 
             col_genus = clean_to_orig_map.get(COL_GENUS)
@@ -545,7 +570,7 @@ def render_dashboard(selected_key):
                     cont_counts.columns = ['Container', 'Count']
                     fig_c = px.pie(cont_counts, values='Count', names='Container', hole=0.4)
                     st.plotly_chart(fig_c, use_container_width=True)
-                else: st.warning(f"Container data missing. Could not find column: '{COL_CONTAINER_LABEL}'")
+                else: st.warning(f"Container data missing. Could not find column: '{COL_CONTAINER_LABEL}' or '{FALLBACK_KEY}'")
 
             with c3:
                 if col_submitted:
