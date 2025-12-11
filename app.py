@@ -267,6 +267,19 @@ def check_password_on_home():
 
 # --- MAIN DASHBOARD RENDERER ---
 def render_dashboard(selected_key):
+    # This style block ensures the dashboard content itself gets the opaque background
+    st.markdown("""
+        <style>
+            /* Ensures wide layout uses maximum space */
+            .main .block-container { 
+                background-color: rgba(255, 255, 255, 0.90); 
+                padding: 2rem; 
+                border-radius: 10px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
     # --- ZONING MAP BUTTON ---
     if selected_key == 'peri':
         pdf_file_name = "zoning.pdf"
@@ -305,81 +318,67 @@ def render_dashboard(selected_key):
         st.header("International Flights Screening Data Summary")
         
         df_filtered = df.copy() # Use full data for flights unless filters are added later
-        df_filtered['Date'] = pd.to_datetime(df_filtered.get('Date', df_filtered.get('_submission_time'))).dt.date
         
-        # 1. Setup Column Identifiers (Flexible Search)
-        col_map_lower = {c.lower(): c for c in df_filtered.columns}
-        date_col = next((col for col in df_filtered.columns if 'date' in col.lower()), None)
-        
-        # Try to find the Passengers Column (e.g., Number_of_passengers)
-        pax_col = next((col for col in df_filtered.columns if 'passenger' in col.lower() or 'pax' in col.lower() or 'number_of_passengers' in col.lower()), None)
+        # 1. SETUP FILTERS (Sidebar)
         staff1_col = "Flight_Duty_personnel"
         staff2_col = "Deputy"
+        date_col = next((col for col in df_filtered.columns if 'date' in col.lower()), None)
+        
+        if date_col:
+            df_filtered[date_col] = pd.to_datetime(df_filtered[date_col])
+            min_date, max_date = df_filtered[date_col].min().date(), df_filtered[date_col].max().date()
+            d1, d2 = st.sidebar.columns(2)
+            start_date = d1.date_input("Start", min_date, key=f"start_date_{selected_key}")
+            end_date = d2.date_input("End", max_date, key=f"end_date_{selected_key}")
+            mask = (df_filtered[date_col].dt.date >= start_date) & (df_filtered[date_col].dt.date <= end_date)
+            df_filtered = df_filtered.loc[mask]
 
-        # --- A. SIMPLE SUMMARY TABLE (as requested in previous step) ---
-        with st.expander("Summary Statistics", expanded=True):
-            summary_data = []
-            total_entries = len(df_filtered)
-            summary_data.append(["Total International Flights Screened (Total Entries)", total_entries])
+        if staff1_col in df_filtered.columns and staff2_col in df_filtered.columns:
+            all_staff = pd.concat([df_filtered[staff1_col].dropna(), df_filtered[staff2_col].dropna()]).astype(str).unique().tolist()
             
-            numeric_df = df_filtered.select_dtypes(include=['number']).fillna(0)
-            exclude_cols = ['_index', 'latitude', 'longitude', 'accuracy', '_id', 'instanceid', 'start', 'end'] 
+            selected_personnel = st.sidebar.multiselect(
+                "Filter by Duty Personnel", 
+                all_staff, 
+                key=f"personnel_filter_{selected_key}"
+            )
             
-            for col in numeric_df.columns:
-                if not col.startswith('_') and col.lower() not in exclude_cols:
-                    col_sum = numeric_df[col].sum()
-                    summary_data.append([col, f"{col_sum:,.0f}"])
-                    
-            summary_df = pd.DataFrame(summary_data, columns=["Metric", "Value"])
-            st.table(summary_df)
+            if selected_personnel:
+                # Filter if EITHER staff1 OR staff2 is in the selected list
+                mask = (df_filtered[staff1_col].isin(selected_personnel)) | \
+                       (df_filtered[staff2_col].isin(selected_personnel))
+                df_filtered = df_filtered[mask]
 
-        # --- B. STAFF PERFORMANCE REPORT (New Request Logic) ---
-        with st.expander("👮 Staff Performance Report", expanded=True):
-            if not date_col or not pax_col or staff1_col not in df_filtered.columns or staff2_col not in df_filtered.columns:
-                st.warning(f"Required data columns not found for Staff Report. Missing: Date={date_col is None}, Pax={pax_col is None}, StaffCols=False.")
-            elif not df_filtered.empty:
-                
-                # Stack/Unpivot data to attribute metrics to both staff members
-                staff_data = []
-                df_filtered[pax_col] = pd.to_numeric(df_filtered[pax_col], errors='coerce').fillna(0)
-                
-                for _, row in df_filtered.iterrows():
-                    pax_count = row[pax_col]
-                    date_val = row[date_col].date()
-                    
-                    # Staff 1
-                    staff_data.append({'Name': row[staff1_col], 'Date': date_val, 'Pax': pax_count})
-                    
-                    # Staff 2 (Deputy)
-                    deputy = row[staff2_col]
-                    if pd.notna(deputy):
-                        staff_data.append({'Name': deputy, 'Date': date_val, 'Pax': pax_count})
-                        
-                df_staff = pd.DataFrame(staff_data).dropna(subset=['Name']).reset_index(drop=True)
-                
-                # Aggregate Metrics
-                report = df_staff.groupby('Name').agg(
-                    Days_Worked=('Date', 'nunique'),
-                    Total_Passengers_Screened=('Pax', 'sum')
-                ).reset_index()
-                
-                # Apply human readable names
-                report['Name'] = report['Name'].map(lambda x: STAFF_NAMES.get(str(x).strip().lower(), x))
-                
-                report.index += 1
-                report.index.name = "S.No"
-                report = report.reset_index()
-                
-                st.dataframe(report, use_container_width=True)
-                st.download_button(
-                    "Download Staff Report (Excel)",
-                    to_excel(report),
-                    "Flights_Staff_Report.xlsx",
-                    key="flights_staff_report_download"
-                )
-            else:
-                st.info("No flight entries available in the filtered date range for staff analysis.")
+        if df_filtered.empty:
+            st.info("No data available for the selected filters.")
+            st.stop()
 
+
+        # 2. SIMPLE SUMMARY TABLE
+        summary_data = []
+        total_entries = len(df_filtered)
+        summary_data.append(["Total International Flights Screened (Total Entries)", total_entries])
+        
+        # New Metric: Total Days of Screening
+        total_days = df_filtered[date_col].dt.date.nunique() if date_col else 'N/A'
+        summary_data.append(["Total Days of Screening", total_days])
+        
+        numeric_df = df_filtered.select_dtypes(include=['number']).fillna(0)
+        exclude_cols = ['_index', 'latitude', 'longitude', 'accuracy', '_id', 'instanceid', 'start', 'end'] 
+        
+        for col in numeric_df.columns:
+            if not col.startswith('_') and col.lower() not in exclude_cols:
+                col_sum = numeric_df[col].sum()
+                summary_data.append([col, f"{col_sum:,.0f}"])
+                
+        summary_df = pd.DataFrame(summary_data, columns=["Metric", "Value"])
+        st.table(summary_df)
+        
+        st.download_button(
+            "Download Raw Flights Data",
+            to_excel(df_filtered),
+            "Flights_Raw_Data_Filtered.xlsx",
+            key="flights_raw_download"
+        )
         st.stop()
     # --- END FLIGHTS SCREENING SUMMARY ---
 
@@ -568,7 +567,11 @@ def render_dashboard(selected_key):
         with st.expander("🔬 Larvae Identification Data (Click to Expand)", expanded=False):
             df_id = load_kobo_data(current_config['id_url'])
             
-            # --- DEBUG EXPANDER (REMOVED) ---
+            # --- DEBUG EXPANDER ---
+            with st.expander("🛠️ Debug: View Data Headers"):
+                st.write("Here are the exact column names in your data:")
+                st.write(df_id.columns.tolist())
+            # ---------------------
 
             if not df_id.empty:
                 # 1. Define Clean Targets
@@ -743,7 +746,6 @@ def render_home_page():
     st.markdown("""
         <style>
         .stApp {
-            /* Ensures default white/theme background */
             background-image: none !important;
             background-color: white !important;
         }
@@ -756,7 +758,6 @@ def render_home_page():
         </style>
     """, unsafe_allow_html=True)
     
-    # AUTHENTICATION IS BYPASSED FOR STABILITY
     is_authenticated = True
     
     if is_authenticated:
