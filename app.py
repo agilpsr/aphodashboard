@@ -92,7 +92,7 @@ def get_high_res_url(original_url):
 def show_image_popup(row_data):
     col_genus = "Select the Genus:"
     col_species = "Select the Species:"
-    col_container = "Type of container the sample was collected from"
+    col_container = "Type of container the sample was collected from "
     col_submitted = "_submitted_by"
     
     genus = row_data.get(col_genus, 'N/A')
@@ -462,7 +462,7 @@ def render_dashboard(selected_key):
             # Key Columns - Explicit Names
             col_genus = "Select the Genus:"
             col_species = "Select the Species:"
-            col_container = "Type of container the sample was collected from"
+            col_container = "Type of container the sample was collected from "
             col_submitted = "_submitted_by"
 
             if date_col_id: df_id[date_col_id] = pd.to_datetime(df_id[date_col_id])
