@@ -997,7 +997,7 @@ def render_home_page():
                 st.session_state['page'] = 'anti_larval'
                 st.rerun()
             st.write("") # Spacer
-            if st.button("🎓 Vocational Trainings", use_container_width=True, type="primary"):
+            if st.button("🎓 Vocational Trainings and other activities", use_container_width=True, type="primary"):
                 st.session_state['page'] = 'trainings'
                 st.rerun()
                 
