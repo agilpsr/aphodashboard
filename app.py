@@ -715,13 +715,27 @@ def render_dashboard(selected_key):
             if date_col and col_zone in df_filtered.columns:
                 df_trend = df_filtered.copy()
                 df_trend['Month'] = df_trend[date_col].dt.to_period('M').astype(str)
+                
+                # --- MODIFIED AGGREGATION TO INCLUDE CONTAINER STATS ---
                 trend_data = df_trend.groupby(['Month', col_zone]).agg(
                     pos=('pos_house_calc', lambda x: (x>0).sum()),
-                    total=('pos_house_calc', 'count')
+                    total=('pos_house_calc', 'count'),
+                    pos_cont=('pos_cont_calc', 'sum'),
+                    wet_cont=('wet_cont_calc', 'sum')
                 ).reset_index()
+                
+                # Calculate HI
                 trend_data['HI'] = (trend_data['pos'] / trend_data['total'] * 100).fillna(0)
+                # Calculate CI
+                trend_data['CI'] = (trend_data['pos_cont'] / trend_data['wet_cont'].replace(0, 1) * 100).fillna(0)
+
+                # Plot HI
                 fig_trend = px.line(trend_data, x='Month', y='HI', color=col_zone, markers=True, title=f"Trend of {label_hi} by Zone")
                 st.plotly_chart(fig_trend, use_container_width=True)
+                
+                # Plot CI
+                fig_trend_ci = px.line(trend_data, x='Month', y='CI', color=col_zone, markers=True, title=f"Trend of Container Index (CI) by Zone")
+                st.plotly_chart(fig_trend_ci, use_container_width=True)
             else:
                 st.info("Insufficient data for Trend Analysis.")
 
@@ -984,8 +998,9 @@ def render_home_page():
                 st.session_state['page'] = 'intra'
                 st.rerun()
             st.write("") # Spacer
-            if st.button("🧹 Sanitary & Toilet Reports", use_container_width=True, type="primary"):
-                st.session_state['page'] = 'sanitary'
+            # MOVED ANTI-LARVAL HERE
+            if st.button("🛡️ Anti-Larval Action Reports", use_container_width=True, type="primary"):
+                st.session_state['page'] = 'anti_larval'
                 st.rerun()
 
         with col2:
@@ -993,8 +1008,9 @@ def render_home_page():
                 st.session_state['page'] = 'flights'
                 st.rerun()
             st.write("") # Spacer
-            if st.button("🛡️ Anti-Larval Action Reports", use_container_width=True, type="primary"):
-                st.session_state['page'] = 'anti_larval'
+            # MOVED SANITARY HERE
+            if st.button("🧹 Sanitary & Toilet Reports", use_container_width=True, type="primary"):
+                st.session_state['page'] = 'sanitary'
                 st.rerun()
             st.write("") # Spacer
             if st.button("🎓 Vocational Trainings and other activities", use_container_width=True, type="primary"):
