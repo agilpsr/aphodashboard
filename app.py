@@ -445,9 +445,10 @@ def render_dashboard(selected_key):
             pdf_col = clean_cols.get(target_key)
             if not pdf_col:
                  pdf_col = next((c for c in df_action.columns if 'pdf' in c.lower() and 'url' in c.lower()), None)
-            
             if pdf_col:
                 column_config[pdf_col] = st.column_config.LinkColumn("Action Report", display_text="📥 Download PDF")
+            system_cols = ['start', 'end', '_id', '_uuid', '_submission_time', '_validation_status', '_notes', '_status', '_submitted_by', '__version__', '_tags', '_index']
+            display_cols = [c for c in df_action.columns if c not in system_cols]
 
         elif selected_key == 'sanitary':
             target_sanitary = "upload sanitary inspection report (pdf) _url"
@@ -463,22 +464,65 @@ def render_dashboard(selected_key):
                 column_config[sanitary_col] = st.column_config.LinkColumn("Sanitary Report", display_text="📥 Download Sanitary")
             if toilet_col:
                 column_config[toilet_col] = st.column_config.LinkColumn("Toilet Report", display_text="📥 Download Toilet")
+            system_cols = ['start', 'end', '_id', '_uuid', '_submission_time', '_validation_status', '_notes', '_status', '_submitted_by', '__version__', '_tags', '_index']
+            display_cols = [c for c in df_action.columns if c not in system_cols]
 
         elif selected_key == 'trainings':
+            # --- STRICT COLUMN FILTERING FOR TRAININGS ---
             target_pres = "upload presentation_URL"
             target_pic = "upload picture_URL"
-            
+            target_date = "Date"
+            target_desc = "description of training" # User specified column name
+
+            # Find matching columns using fuzzy matching or direct access
             pres_col = clean_cols.get(target_pres.lower())
+            if not pres_col: pres_col = next((c for c in df_action.columns if 'presentation' in c.lower() and 'url' in c.lower()), None)
+            
             pic_col = clean_cols.get(target_pic.lower())
+            if not pic_col: pic_col = next((c for c in df_action.columns if 'picture' in c.lower() and 'url' in c.lower()), None)
+            
+            date_col_actual = clean_cols.get(target_date.lower())
+            if not date_col_actual: date_col_actual = next((c for c in df_action.columns if 'date' in c.lower()), None)
+            
+            desc_col_actual = clean_cols.get(target_desc.lower())
+            if not desc_col_actual: desc_col_actual = next((c for c in df_action.columns if 'description' in c.lower()), None)
 
-            if pres_col:
+            # Build Display DataFrame
+            display_cols = []
+            rename_map = {}
+            
+            if date_col_actual: 
+                display_cols.append(date_col_actual)
+                rename_map[date_col_actual] = "Date of Training"
+            if desc_col_actual: 
+                display_cols.append(desc_col_actual)
+                rename_map[desc_col_actual] = "Description of Training"
+            if pres_col: 
+                display_cols.append(pres_col)
+                rename_map[pres_col] = "Presentation"
                 column_config[pres_col] = st.column_config.LinkColumn("Presentation", display_text="📥 Download Presentation")
-            if pic_col:
-                column_config[pic_col] = st.column_config.LinkColumn("Event Picture", display_text="📥 Download Picture")
+            if pic_col: 
+                display_cols.append(pic_col)
+                rename_map[pic_col] = "Picture"
+                column_config[pic_col] = st.column_config.LinkColumn("Picture", display_text="📥 Download Picture")
 
-        system_cols = ['start', 'end', '_id', '_uuid', '_submission_time', '_validation_status', '_notes', '_status', '_submitted_by', '__version__', '_tags', '_index']
-        display_cols = [c for c in df_action.columns if c not in system_cols]
-        
+            # Filter and Rename
+            df_final_display = df_action[display_cols].rename(columns=rename_map)
+            
+            # Apply configuration to the renamed columns
+            final_config = {}
+            if pres_col: final_config["Presentation"] = st.column_config.LinkColumn("Presentation", display_text="📥 Download Presentation")
+            if pic_col: final_config["Picture"] = st.column_config.LinkColumn("Picture", display_text="📥 Download Picture")
+
+            st.dataframe(
+                df_final_display,
+                column_config=final_config,
+                use_container_width=True,
+                hide_index=True
+            )
+            st.stop() # Stop here for trainings to avoid default rendering
+
+        # Default render for other report types that didn't stop
         st.dataframe(
             df_action[display_cols],
             column_config=column_config,
