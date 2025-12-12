@@ -102,6 +102,7 @@ def plot_metric_bar(data, x_col, y_col, title, color_col, range_max=None):
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
         font=dict(family="Inter, sans-serif"),
+        margin=dict(l=20, r=20, t=40, b=20),
         coloraxis_showscale=False
     )
     fig.update_traces(texttemplate='%{text:.2f}', textposition='outside')
@@ -302,25 +303,35 @@ def check_password():
         .login-box {
             max-width: 400px;
             margin: 100px auto;
-            padding: 30px;
+            padding: 40px;
             background: white;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
             text-align: center;
+            border: 1px solid #e2e8f0;
+        }
+        .login-box h2 { color: #1e3a8a; font-weight: 800; }
+        div.stButton > button {
+            background-color: #1e3a8a;
+            color: white;
+            width: 100%;
+            border-radius: 10px;
+            height: 50px;
+            font-size: 16px;
         }
         </style>
     """, unsafe_allow_html=True)
     
-    st.markdown('<div class="login-box"><h2>🔐 Access Restricted</h2><p>Please enter your credentials.</p></div>', unsafe_allow_html=True)
+    st.markdown('<div class="login-box"><h2>🔐 Portal Access</h2><p>Restricted Area. Please identify yourself.</p></div>', unsafe_allow_html=True)
     
     password = st.text_input("Password", type="password", key="password_input")
     
-    if st.button("Enter", type="primary"):
+    if st.button("Enter Dashboard", type="primary"):
         if password == "Aphotrz@2025":
             st.session_state["authenticated"] = True
             st.rerun()
         else:
-            st.error("😕 Incorrect password")
+            st.error("😕 Incorrect password. Access Denied.")
         
     return False
 
@@ -328,86 +339,169 @@ def check_password():
 def inject_custom_css():
     st.markdown("""
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap');
         
         html, body, [class*="css"] {
             font-family: 'Inter', sans-serif;
             background-color: #f0f4f8; /* Very light blue-grey background */
         }
         
-        /* The main container background pattern - DOODLE STYLE */
+        /* Background Pattern */
         .stApp {
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'%3E%3Ctext x='10' y='30' font-size='24' opacity='0.08'%3E✈️%3C/text%3E%3Ctext x='60' y='80' font-size='24' opacity='0.08'%3E🦟%3C/text%3E%3Ctext x='80' y='30' font-size='24' opacity='0.08'%3E🏥%3C/text%3E%3Ctext x='20' y='80' font-size='24' opacity='0.08'%3E🧹%3C/text%3E%3C/svg%3E");
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'%3E%3Ctext x='10' y='30' font-size='24' opacity='0.05'%3E✈️%3C/text%3E%3Ctext x='60' y='80' font-size='24' opacity='0.05'%3E🦟%3C/text%3E%3Ctext x='80' y='30' font-size='24' opacity='0.05'%3E🏥%3C/text%3E%3Ctext x='20' y='80' font-size='24' opacity='0.05'%3E🧹%3C/text%3E%3C/svg%3E");
             background-attachment: fixed;
         }
 
-        /* Header Styling */
+        /* HEADER STYLING */
         .main-header {
-            background: linear-gradient(135deg, #0052cc 0%, #00a3ff 100%);
+            background: linear-gradient(120deg, #1E3A8A 0%, #2563EB 100%);
             padding: 3rem 1rem;
-            border-radius: 0 0 20px 20px;
+            border-radius: 0 0 30px 30px;
             color: white;
             text-align: center;
-            margin-bottom: 2rem;
-            box-shadow: 0 8px 20px rgba(0,82,204,0.2);
+            margin-bottom: 3rem;
+            box-shadow: 0 10px 25px rgba(30, 58, 138, 0.25);
+            border-bottom: 5px solid #60A5FA;
         }
         .main-header h1 {
             font-weight: 800;
+            font-size: 2.5rem;
             letter-spacing: -1px;
-            text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            margin-bottom: 0.5rem;
+        }
+        .main-header h3 {
+            font-weight: 400;
+            font-size: 1.1rem;
+            opacity: 0.9;
         }
         
-        /* Card Styling for Content */
-        .block-container {
-            padding-top: 0 !important;
+        /* CARD & CONTAINER STYLING FOR GRAPHS/METRICS */
+        /* Targets the containers holding plots and metrics */
+        .element-container, div[data-testid="stExpander"], .stDataFrame {
+            background-color: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            border: 1px solid #E2E8F0;
+            transition: all 0.3s ease;
         }
         
-        /* Button Styling - BIG TILES */
-        div.stButton > button {
-            width: 100%;
-            height: 100px;
-            font-size: 20px !important;
-            font-weight: 600 !important;
-            color: white !important;
-            background: linear-gradient(135deg, #1E3A8A 0%, #3B82F6 100%);
-            border: none !important;
-            border-radius: 15px !important;
-            box-shadow: 0 6px 12px rgba(30, 58, 138, 0.15) !important;
-            transition: all 0.3s ease !important;
-            margin-bottom: 10px;
+        /* Adding Pop Effect to Charts */
+        .js-plotly-plot {
+            border-radius: 15px;
+            padding: 10px;
         }
-        div.stButton > button:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 20px rgba(30, 58, 138, 0.25) !important;
+        div[data-testid="stPlotlyChart"]:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 20px rgba(30, 58, 138, 0.1);
+            border: 1px solid #BFDBFE; /* Light Blue Border on Hover */
         }
-        
-        /* Metric Cards */
+
+        /* METRIC CARDS */
         div[data-testid="stMetric"] {
             background-color: white;
             padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-            border: 1px solid #eef2f6;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.03);
+            border: 1px solid #F1F5F9;
             text-align: center;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        div[data-testid="stMetric"]:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 15px rgba(0,0,0,0.08);
+            border-color: #3B82F6; /* Blue Border */
         }
         div[data-testid="stMetricLabel"] {
-            font-size: 0.9rem;
+            font-size: 0.85rem;
             color: #64748b;
             font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
         div[data-testid="stMetricValue"] {
             font-size: 1.8rem;
-            color: #0f172a;
-            font-weight: 700;
+            color: #1E3A8A;
+            font-weight: 800;
         }
 
-        /* Container opacity for readability over doodles */
-        .element-container, .stDataFrame, .stTable {
-            background-color: rgba(255, 255, 255, 0.9);
-            border-radius: 10px;
-            padding: 10px;
+        /* HOME PAGE SELECTION BOX BORDER */
+        .home-selection-border {
+            border: 3px solid #3B82F6;
+            border-radius: 25px;
+            padding: 40px;
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 15px 30px rgba(0,0,0,0.05);
+            margin-bottom: 30px;
         }
-        
+        .home-selection-title {
+            color: #1E3A8A;
+            font-weight: 800;
+            font-size: 1.8rem;
+            text-align: center;
+            margin-bottom: 30px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* BUTTON STYLING */
+        div.stButton > button {
+            width: 100%;
+            height: 90px;
+            font-size: 18px !important;
+            font-weight: 600 !important;
+            color: white !important;
+            background: linear-gradient(145deg, #1E3A8A 0%, #2563EB 100%);
+            border: none !important;
+            border-radius: 12px !important;
+            box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2) !important;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+            margin-bottom: 12px;
+            border-bottom: 4px solid #172554 !important; /* Darker blue bottom border for 3D effect */
+        }
+        div.stButton > button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 20px rgba(37, 99, 235, 0.3) !important;
+            background: linear-gradient(145deg, #2563EB 0%, #3B82F6 100%);
+        }
+        div.stButton > button:active {
+            transform: translateY(2px);
+            border-bottom: 0px solid transparent !important;
+        }
+
+        /* SIDEBAR FILTERS POP */
+        section[data-testid="stSidebar"] {
+            background-color: #F8FAFC;
+            border-right: 1px solid #E2E8F0;
+        }
+        section[data-testid="stSidebar"] h1, 
+        section[data-testid="stSidebar"] h2, 
+        section[data-testid="stSidebar"] h3 {
+            color: #1E3A8A;
+            font-weight: 700;
+            border-bottom: 2px solid #BFDBFE;
+            padding-bottom: 5px;
+            margin-bottom: 15px;
+        }
+        /* Style the filter widgets container */
+        .stMultiSelect, .stDateInput, .stSelectbox {
+            background: white;
+            padding: 10px;
+            border-radius: 10px;
+            border: 1px solid #E2E8F0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+            transition: border-color 0.2s;
+            margin-bottom: 10px;
+        }
+        .stMultiSelect:hover, .stDateInput:hover, .stSelectbox:hover {
+            border-color: #3B82F6;
+        }
+
+        /* GENERAL LAYOUT TWEAKS */
+        .block-container {
+            padding-top: 0 !important;
+            max-width: 100% !important;
+        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -989,38 +1083,43 @@ def render_home_page():
     """, unsafe_allow_html=True)
     
     if st.session_state.get('page') not in ['peri', 'intra', 'flights', 'anti_larval', 'sanitary', 'trainings']:
-        st.header("Select Activity Section")
         
-        # Grid Layout for Home Page
-        col1, col2 = st.columns(2)
+        # --- CUSTOM CENTERED SELECTION BOX ---
+        st.markdown('<div class="home-selection-border"><h2 class="home-selection-title">Select Activity Section</h2>', unsafe_allow_html=True)
         
-        with col1:
-            if st.button("🦟 Outside Field Activities (Peri)", use_container_width=True, type="primary"):
-                st.session_state['page'] = 'peri'
-                st.rerun()
-            st.write("") # Spacer
-            if st.button("✈️ Inside Field Activities (Intra)", use_container_width=True, type="primary"):
-                st.session_state['page'] = 'intra'
-                st.rerun()
-            st.write("") # Spacer
-            # MOVED ANTI-LARVAL HERE
-            if st.button("🛡️ Anti-Larval Action Reports", use_container_width=True, type="primary"):
-                st.session_state['page'] = 'anti_larval'
-                st.rerun()
+        # Grid Layout for Home Page - Centered with Columns
+        _, main_col, _ = st.columns([1, 4, 1])
+        
+        with main_col:
+            c1, c2 = st.columns(2)
+            
+            with c1:
+                if st.button("🦟 Outside Field Activities (Peri)", use_container_width=True, type="primary"):
+                    st.session_state['page'] = 'peri'
+                    st.rerun()
+                st.write("") # Spacer
+                if st.button("✈️ Inside Field Activities (Intra)", use_container_width=True, type="primary"):
+                    st.session_state['page'] = 'intra'
+                    st.rerun()
+                st.write("") # Spacer
+                if st.button("🛡️ Anti-Larval Action Reports", use_container_width=True, type="primary"):
+                    st.session_state['page'] = 'anti_larval'
+                    st.rerun()
 
-        with col2:
-            if st.button("✈️ International Flights Screening", use_container_width=True, type="primary"):
-                st.session_state['page'] = 'flights'
-                st.rerun()
-            st.write("") # Spacer
-            # MOVED SANITARY HERE
-            if st.button("🧹 Sanitary & Toilet Reports", use_container_width=True, type="primary"):
-                st.session_state['page'] = 'sanitary'
-                st.rerun()
-            st.write("") # Spacer
-            if st.button("🎓 Vocational Trainings and other activities", use_container_width=True, type="primary"):
-                st.session_state['page'] = 'trainings'
-                st.rerun()
+            with c2:
+                if st.button("✈️ International Flights Screening", use_container_width=True, type="primary"):
+                    st.session_state['page'] = 'flights'
+                    st.rerun()
+                st.write("") # Spacer
+                if st.button("🧹 Sanitary & Toilet Reports", use_container_width=True, type="primary"):
+                    st.session_state['page'] = 'sanitary'
+                    st.rerun()
+                st.write("") # Spacer
+                if st.button("🎓 Vocational Trainings & Activities", use_container_width=True, type="primary"):
+                    st.session_state['page'] = 'trainings'
+                    st.rerun()
+        
+        st.markdown('</div>', unsafe_allow_html=True)
                 
     else:
         if st.sidebar.button("🏠 Back to Home", key="back_to_home_button"):
