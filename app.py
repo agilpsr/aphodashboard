@@ -376,34 +376,28 @@ def inject_custom_css():
             opacity: 0.9;
         }
         
-        /* CARD & CONTAINER STYLING */
-        .element-container, div[data-testid="stExpander"], .stDataFrame {
+        /* CARD & CONTAINER STYLING - Targeted to avoid empty boxes */
+        /* Only apply card style to metric container, expanders, dataframes, and charts */
+        div[data-testid="stMetric"], div[data-testid="stExpander"], .stDataFrame, .stPlotlyChart {
             background-color: rgba(255, 255, 255, 0.95);
             border-radius: 15px;
             border: 1px solid #E2E8F0;
             transition: all 0.3s ease;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.02);
+            padding: 15px;
+            margin-bottom: 20px;
         }
         
         /* Pop Effect for Charts */
-        .js-plotly-plot {
-            border-radius: 15px;
-            padding: 10px;
-        }
         div[data-testid="stPlotlyChart"]:hover {
             transform: translateY(-3px);
             box-shadow: 0 10px 20px rgba(30, 58, 138, 0.1);
             border: 1px solid #BFDBFE;
         }
 
-        /* METRIC CARDS */
+        /* METRIC CARDS OVERRIDE */
         div[data-testid="stMetric"] {
-            background-color: white;
-            padding: 20px;
-            border-radius: 15px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.03);
-            border: 1px solid #F1F5F9;
             text-align: center;
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
         }
         div[data-testid="stMetric"]:hover {
             transform: translateY(-5px);
@@ -483,24 +477,28 @@ def inject_custom_css():
             margin-bottom: 15px;
         }
         
-        /* Sidebar Widget Container Styling */
+        /* Sidebar Widget Container Styling - INCREASED SIZE & BORDER */
         div[data-testid="stSidebar"] div[class*="stMultiSelect"], 
         div[data-testid="stSidebar"] div[class*="stDateInput"], 
         div[data-testid="stSidebar"] div[class*="stSelectbox"] {
             background-color: white;
-            border-radius: 12px;
-            padding: 10px 15px; /* Adjusted padding for better vertical alignment */
-            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-            border: 1px solid #E2E8F0;
-            margin-bottom: 15px;
+            border-radius: 15px; /* Larger radius */
+            padding: 20px; /* Increased padding */
+            box-shadow: 0 4px 10px rgba(37, 99, 235, 0.1);
+            border: 2px solid #2563EB; /* Prominent Blue Border */
+            margin-bottom: 25px; /* More spacing between filters */
         }
         
-        /* Label Styling inside sidebar widgets */
+        /* Label Styling inside sidebar widgets - RIGHT ALIGNED */
         div[data-testid="stSidebar"] label {
             color: #1E3A8A !important;
-            font-weight: 600 !important;
-            margin-bottom: 8px !important; /* Fixed spacing between label and input */
+            font-weight: 700 !important;
+            font-size: 1rem !important;
+            margin-bottom: 10px !important;
             display: block;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            text-align: right !important; /* Right aligned labels */
         }
 
         /* GENERAL LAYOUT TWEAKS */
@@ -547,23 +545,72 @@ def render_dashboard(selected_key):
                 column_config[pdf_col] = st.column_config.LinkColumn("Action Report", display_text="📥 Download PDF")
             system_cols = ['start', 'end', '_id', '_uuid', '_submission_time', '_validation_status', '_notes', '_status', '_submitted_by', '__version__', '_tags', '_index']
             display_cols = [c for c in df_action.columns if c not in system_cols]
+            
+            st.dataframe(
+                df_action[display_cols],
+                column_config=column_config,
+                use_container_width=True,
+                hide_index=True
+            )
 
         elif selected_key == 'sanitary':
+            # --- STRICT COLUMN FILTERING FOR SANITARY ---
             target_sanitary = "upload sanitary inspection report (pdf) _url"
             target_toilet = "upload toilet inspection report(pdf) _url"
+            target_date = "Date"
+            target_sum_san = "summary_of_the_sanitary_insp"
+            target_sum_toi = "summary_of_the_toilet_inspec"
             
+            # Find Columns
             sanitary_col = clean_cols.get(target_sanitary)
             if not sanitary_col: sanitary_col = next((c for c in df_action.columns if 'sanitary' in c.lower() and 'url' in c.lower()), None)
             
             toilet_col = clean_cols.get(target_toilet)
             if not toilet_col: toilet_col = next((c for c in df_action.columns if 'toilet' in c.lower() and 'url' in c.lower()), None)
             
+            date_col_actual = clean_cols.get(target_date.lower())
+            if not date_col_actual: date_col_actual = next((c for c in df_action.columns if 'date' in c.lower()), None)
+            
+            # Find summary (prioritize sanitary summary, fallback to general if needed)
+            sum_col = clean_cols.get(target_sum_san)
+            if not sum_col: sum_col = clean_cols.get(target_sum_toi)
+            if not sum_col: sum_col = next((c for c in df_action.columns if 'summary' in c.lower()), None)
+
+            # Build Display DataFrame
+            display_cols = []
+            rename_map = {}
+            final_config = {}
+
+            if date_col_actual: 
+                display_cols.append(date_col_actual)
+                rename_map[date_col_actual] = "Date"
+            
+            if sum_col:
+                display_cols.append(sum_col)
+                rename_map[sum_col] = "Summary"
+                # Use TextColumn to allow wrapping/larger width for visibility
+                final_config["Summary"] = st.column_config.TextColumn("Summary", width="large")
+
             if sanitary_col:
-                column_config[sanitary_col] = st.column_config.LinkColumn("Sanitary Report", display_text="📥 Download Sanitary")
+                display_cols.append(sanitary_col)
+                rename_map[sanitary_col] = "Sanitary Report"
+                final_config["Sanitary Report"] = st.column_config.LinkColumn("Sanitary Report", display_text="📥 Download Sanitary")
+            
             if toilet_col:
-                column_config[toilet_col] = st.column_config.LinkColumn("Toilet Report", display_text="📥 Download Toilet")
-            system_cols = ['start', 'end', '_id', '_uuid', '_submission_time', '_validation_status', '_notes', '_status', '_submitted_by', '__version__', '_tags', '_index']
-            display_cols = [c for c in df_action.columns if c not in system_cols]
+                display_cols.append(toilet_col)
+                rename_map[toilet_col] = "Toilet Report"
+                final_config["Toilet Report"] = st.column_config.LinkColumn("Toilet Report", display_text="📥 Download Toilet")
+
+            df_final_display = df_action[display_cols].rename(columns=rename_map)
+            
+            st.dataframe(
+                df_final_display,
+                column_config=final_config,
+                use_container_width=True,
+                hide_index=True
+            )
+            # Add download button for raw data (useful if summary text is too long)
+            st.download_button("Download Full Sanitary Data (Excel)", to_excel(df_final_display), "Sanitary_Reports.xlsx")
 
         elif selected_key == 'trainings':
             # --- STRICT COLUMN FILTERING FOR TRAININGS ---
@@ -588,6 +635,7 @@ def render_dashboard(selected_key):
             # Build Display DataFrame
             display_cols = []
             rename_map = {}
+            final_config = {}
             
             if date_col_actual: 
                 display_cols.append(date_col_actual)
@@ -598,19 +646,14 @@ def render_dashboard(selected_key):
             if pres_col: 
                 display_cols.append(pres_col)
                 rename_map[pres_col] = "Presentation"
-                column_config[pres_col] = st.column_config.LinkColumn("Presentation", display_text="📥 Download Presentation")
+                final_config["Presentation"] = st.column_config.LinkColumn("Presentation", display_text="📥 Download Presentation")
             if pic_col: 
                 display_cols.append(pic_col)
                 rename_map[pic_col] = "Picture"
-                column_config[pic_col] = st.column_config.LinkColumn("Picture", display_text="📥 Download Picture")
+                final_config["Picture"] = st.column_config.LinkColumn("Picture", display_text="📥 Download Picture")
 
             # Filter and Rename
             df_final_display = df_action[display_cols].rename(columns=rename_map)
-            
-            # Apply configuration to the renamed columns
-            final_config = {}
-            if pres_col: final_config["Presentation"] = st.column_config.LinkColumn("Presentation", display_text="📥 Download Presentation")
-            if pic_col: final_config["Picture"] = st.column_config.LinkColumn("Picture", display_text="📥 Download Picture")
 
             st.dataframe(
                 df_final_display,
@@ -618,15 +661,6 @@ def render_dashboard(selected_key):
                 use_container_width=True,
                 hide_index=True
             )
-            st.stop() # Stop here for trainings to avoid default rendering
-
-        # Default render for other report types that didn't stop
-        st.dataframe(
-            df_action[display_cols],
-            column_config=column_config,
-            use_container_width=True,
-            hide_index=True
-        )
         st.stop()
 
     # --- ZONING MAP BUTTON ---
@@ -813,9 +847,9 @@ def render_dashboard(selected_key):
                 hotspot_display = hotspot_data[['House Index', 'Container Index']].sort_values('House Index', ascending=False).head(10).reset_index()
                 hotspot_display.columns = ['Street Name', 'House Index', 'Container Index']
                 try:
-                    st.dataframe(hotspot_display.style.background_gradient(cmap='Reds', subset=['House Index', 'Container Index']), use_container_width=True)
+                    st.dataframe(hotspot_display.style.background_gradient(cmap='Reds', subset=['House Index', 'Container Index']), use_container_width=True, hide_index=True)
                 except ImportError:
-                    st.dataframe(hotspot_display, use_container_width=True)
+                    st.dataframe(hotspot_display, use_container_width=True, hide_index=True)
 
             elif selected_key == 'intra' and col_zone in df_filtered.columns:
                 hotspot_data = df_filtered.groupby(col_zone).agg(
@@ -829,10 +863,14 @@ def render_dashboard(selected_key):
                 
                 hotspot_display = hotspot_data[['Premises Index', 'Container Index']].sort_values('Container Index', ascending=False).head(8).reset_index()
                 hotspot_display.columns = ['Zone', 'Premises Index', 'Container Index']
+                
+                # Filter out rows where both indexes are 0
+                hotspot_display = hotspot_display[(hotspot_display['Premises Index'] > 0) | (hotspot_display['Container Index'] > 0)]
+                
                 try:
-                    st.dataframe(hotspot_display.style.background_gradient(cmap='Reds', subset=['Premises Index', 'Container Index']), use_container_width=True)
+                    st.dataframe(hotspot_display.style.background_gradient(cmap='Reds', subset=['Premises Index', 'Container Index']), use_container_width=True, hide_index=True)
                 except ImportError:
-                    st.dataframe(hotspot_display, use_container_width=True)
+                    st.dataframe(hotspot_display, use_container_width=True, hide_index=True)
             else:
                 st.info("Data not available for hotspots.")
 
