@@ -812,7 +812,10 @@ def render_dashboard(selected_key):
                 
                 hotspot_display = hotspot_data[['House Index', 'Container Index']].sort_values('House Index', ascending=False).head(10).reset_index()
                 hotspot_display.columns = ['Street Name', 'House Index', 'Container Index']
-                st.dataframe(hotspot_display.style.set_properties(**{'background-color': '#fee2e2', 'color': 'black'}), use_container_width=True)
+                try:
+                    st.dataframe(hotspot_display.style.background_gradient(cmap='Reds', subset=['House Index', 'Container Index']), use_container_width=True)
+                except ImportError:
+                    st.dataframe(hotspot_display, use_container_width=True)
 
             elif selected_key == 'intra' and col_zone in df_filtered.columns:
                 hotspot_data = df_filtered.groupby(col_zone).agg(
@@ -824,9 +827,12 @@ def render_dashboard(selected_key):
                 hotspot_data['Premises Index'] = (hotspot_data['pos'] / hotspot_data['total'] * 100).fillna(0)
                 hotspot_data['Container Index'] = (hotspot_data['pos_cont'] / hotspot_data['wet_cont'].replace(0, 1) * 100).fillna(0)
                 
-                hotspot_display = hotspot_data[['Premises Index', 'Container Index']].sort_values('Container Index', ascending=False).head(4).reset_index()
+                hotspot_display = hotspot_data[['Premises Index', 'Container Index']].sort_values('Container Index', ascending=False).head(8).reset_index()
                 hotspot_display.columns = ['Zone', 'Premises Index', 'Container Index']
-                st.dataframe(hotspot_display.style.set_properties(**{'background-color': '#fee2e2', 'color': 'black'}), use_container_width=True)
+                try:
+                    st.dataframe(hotspot_display.style.background_gradient(cmap='Reds', subset=['Premises Index', 'Container Index']), use_container_width=True)
+                except ImportError:
+                    st.dataframe(hotspot_display, use_container_width=True)
             else:
                 st.info("Data not available for hotspots.")
 
