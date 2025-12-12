@@ -12,6 +12,7 @@ import xlsxwriter
 from PIL import Image
 import base64 
 import datetime
+import os
 
 # --- 1. SETUP PAGE CONFIGURATION ---
 st.set_page_config(page_title="APHO Tiruchirappalli Dashboard", layout="wide")
@@ -337,30 +338,38 @@ def check_password():
 
 # --- CUSTOM CSS INJECTION ---
 def inject_custom_css():
-    st.markdown("""
+    # Attempt to load logo.png for background
+    try:
+        with open("logo.png", "rb") as image_file:
+            encoded_string = base64.b64encode(image_file.read()).decode()
+        background_css = f"""
+            background-image: linear-gradient(rgba(30, 58, 138, 0.9), rgba(37, 99, 235, 0.8)), url("data:image/png;base64,{encoded_string}");
+            background-size: cover;
+            background-position: top center;
+            background-repeat: no-repeat;
+        """
+    except FileNotFoundError:
+        # Fallback if image not found
+        background_css = "background: linear-gradient(120deg, #1E3A8A 0%, #2563EB 100%);"
+
+    st.markdown(f"""
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap');
         
-        html, body, [class*="css"] {
+        html, body, [class*="css"] {{
             font-family: 'Inter', sans-serif;
             background-color: #f0f4f8; /* Very light blue-grey background */
-        }
+        }}
         
         /* Background Pattern */
-        .stApp {
+        .stApp {{
             background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'%3E%3Ctext x='10' y='30' font-size='24' opacity='0.05'%3E✈️%3C/text%3E%3Ctext x='60' y='80' font-size='24' opacity='0.05'%3E🦟%3C/text%3E%3Ctext x='80' y='30' font-size='24' opacity='0.05'%3E🏥%3C/text%3E%3Ctext x='20' y='80' font-size='24' opacity='0.05'%3E🧹%3C/text%3E%3C/svg%3E");
             background-attachment: fixed;
-        }
+        }}
 
         /* HEADER STYLING */
-        .main-header {
-            /* Replace gradient with image */
-            background-image: url('logo.png');
-            background-size: cover; /* Resize image to cover the container */
-            background-position: top center; /* Keep the top part visible, center horizontally */
-            background-repeat: no-repeat;
-
-            /* Existing styles to keep */
+        .main-header {{
+            {background_css}
             padding: 3rem 1rem;
             border-radius: 0 0 30px 30px;
             color: white;
@@ -368,23 +377,24 @@ def inject_custom_css():
             margin-bottom: 3rem;
             box-shadow: 0 10px 25px rgba(30, 58, 138, 0.25);
             border-bottom: 5px solid #60A5FA;
-        }
-        .main-header h1 {
+        }}
+        .main-header h1 {{
             font-weight: 800;
             font-size: 2.5rem;
             letter-spacing: -1px;
-            text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
             margin-bottom: 0.5rem;
-        }
-        .main-header h3 {
+        }}
+        .main-header h3 {{
             font-weight: 400;
             font-size: 1.1rem;
-            opacity: 0.9;
-        }
+            opacity: 0.95;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+        }}
         
         /* CARD & CONTAINER STYLING - Targeted to avoid empty boxes */
         /* Only apply card style to metric container, expanders, dataframes, and charts */
-        div[data-testid="stMetric"], div[data-testid="stExpander"], .stDataFrame, .stPlotlyChart {
+        div[data-testid="stMetric"], div[data-testid="stExpander"], .stDataFrame, .stPlotlyChart {{
             background-color: rgba(255, 255, 255, 0.95);
             border-radius: 15px;
             border: 1px solid #E2E8F0;
@@ -392,39 +402,39 @@ def inject_custom_css():
             box-shadow: 0 4px 6px rgba(0,0,0,0.02);
             padding: 15px;
             margin-bottom: 20px;
-        }
+        }}
         
         /* Pop Effect for Charts */
-        div[data-testid="stPlotlyChart"]:hover {
+        div[data-testid="stPlotlyChart"]:hover {{
             transform: translateY(-3px);
             box-shadow: 0 10px 20px rgba(30, 58, 138, 0.1);
             border: 1px solid #BFDBFE;
-        }
+        }}
 
         /* METRIC CARDS OVERRIDE */
-        div[data-testid="stMetric"] {
+        div[data-testid="stMetric"] {{
             text-align: center;
-        }
-        div[data-testid="stMetric"]:hover {
+        }}
+        div[data-testid="stMetric"]:hover {{
             transform: translateY(-5px);
             box-shadow: 0 8px 15px rgba(0,0,0,0.08);
             border-color: #3B82F6;
-        }
-        div[data-testid="stMetricLabel"] {
+        }}
+        div[data-testid="stMetricLabel"] {{
             font-size: 0.85rem;
             color: #64748b;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-        }
-        div[data-testid="stMetricValue"] {
+        }}
+        div[data-testid="stMetricValue"] {{
             font-size: 1.8rem;
             color: #1E3A8A;
             font-weight: 800;
-        }
+        }}
 
         /* HOME SELECTION BOX */
-        .home-selection-border {
+        .home-selection-border {{
             border: 3px solid #3B82F6;
             border-radius: 25px;
             padding: 40px;
@@ -432,8 +442,8 @@ def inject_custom_css():
             backdrop-filter: blur(10px);
             box-shadow: 0 15px 30px rgba(0,0,0,0.05);
             margin-bottom: 30px;
-        }
-        .home-selection-title {
+        }}
+        .home-selection-title {{
             color: #1E3A8A;
             font-weight: 800;
             font-size: 1.8rem;
@@ -441,10 +451,10 @@ def inject_custom_css():
             margin-bottom: 30px;
             text-transform: uppercase;
             letter-spacing: 1px;
-        }
+        }}
 
         /* BUTTON STYLING */
-        div.stButton > button {
+        div.stButton > button {{
             width: 100%;
             height: 90px;
             font-size: 18px !important;
@@ -457,46 +467,46 @@ def inject_custom_css():
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
             margin-bottom: 12px;
             border-bottom: 4px solid #172554 !important;
-        }
-        div.stButton > button:hover {
+        }}
+        div.stButton > button:hover {{
             transform: translateY(-2px);
             box-shadow: 0 12px 20px rgba(37, 99, 235, 0.3) !important;
             background: linear-gradient(145deg, #2563EB 0%, #3B82F6 100%);
-        }
-        div.stButton > button:active {
+        }}
+        div.stButton > button:active {{
             transform: translateY(2px);
             border-bottom: 0px solid transparent !important;
-        }
+        }}
 
         /* SIDEBAR FILTERS POP */
-        section[data-testid="stSidebar"] {
+        section[data-testid="stSidebar"] {{
             background-color: #F8FAFC;
             border-right: 1px solid #E2E8F0;
-        }
+        }}
         section[data-testid="stSidebar"] h1, 
         section[data-testid="stSidebar"] h2, 
-        section[data-testid="stSidebar"] h3 {
+        section[data-testid="stSidebar"] h3 {{
             color: #1E3A8A;
             font-weight: 700;
             border-bottom: 2px solid #BFDBFE;
             padding-bottom: 5px;
             margin-bottom: 15px;
-        }
+        }}
         
         /* Sidebar Widget Container Styling - INCREASED SIZE & BORDER */
         div[data-testid="stSidebar"] div[class*="stMultiSelect"], 
         div[data-testid="stSidebar"] div[class*="stDateInput"], 
-        div[data-testid="stSidebar"] div[class*="stSelectbox"] {
+        div[data-testid="stSidebar"] div[class*="stSelectbox"] {{
             background-color: white;
             border-radius: 15px; /* Larger radius */
             padding: 20px; /* Increased padding */
             box-shadow: 0 4px 10px rgba(37, 99, 235, 0.1);
             border: 2px solid #2563EB; /* Prominent Blue Border */
             margin-bottom: 25px; /* More spacing between filters */
-        }
+        }}
         
         /* Label Styling inside sidebar widgets - RIGHT ALIGNED */
-        div[data-testid="stSidebar"] label {
+        div[data-testid="stSidebar"] label {{
             color: #1E3A8A !important;
             font-weight: 700 !important;
             font-size: 1rem !important;
@@ -505,13 +515,13 @@ def inject_custom_css():
             text-transform: uppercase;
             letter-spacing: 0.5px;
             text-align: right !important; /* Right aligned labels */
-        }
+        }}
 
         /* GENERAL LAYOUT TWEAKS */
-        .block-container {
+        .block-container {{
             padding-top: 0 !important;
             max-width: 100% !important;
-        }
+        }}
         </style>
     """, unsafe_allow_html=True)
 
