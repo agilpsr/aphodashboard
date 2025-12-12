@@ -6,3 +6,4 @@ folium
 streamlit-folium
 xlsxwriter
 Pillow  
+matplotlib
