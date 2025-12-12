@@ -376,8 +376,7 @@ def inject_custom_css():
             opacity: 0.9;
         }
         
-        /* CARD & CONTAINER STYLING FOR GRAPHS/METRICS */
-        /* Targets the containers holding plots and metrics */
+        /* CARD & CONTAINER STYLING */
         .element-container, div[data-testid="stExpander"], .stDataFrame {
             background-color: rgba(255, 255, 255, 0.95);
             border-radius: 15px;
@@ -385,7 +384,7 @@ def inject_custom_css():
             transition: all 0.3s ease;
         }
         
-        /* Adding Pop Effect to Charts */
+        /* Pop Effect for Charts */
         .js-plotly-plot {
             border-radius: 15px;
             padding: 10px;
@@ -393,7 +392,7 @@ def inject_custom_css():
         div[data-testid="stPlotlyChart"]:hover {
             transform: translateY(-3px);
             box-shadow: 0 10px 20px rgba(30, 58, 138, 0.1);
-            border: 1px solid #BFDBFE; /* Light Blue Border on Hover */
+            border: 1px solid #BFDBFE;
         }
 
         /* METRIC CARDS */
@@ -409,7 +408,7 @@ def inject_custom_css():
         div[data-testid="stMetric"]:hover {
             transform: translateY(-5px);
             box-shadow: 0 8px 15px rgba(0,0,0,0.08);
-            border-color: #3B82F6; /* Blue Border */
+            border-color: #3B82F6;
         }
         div[data-testid="stMetricLabel"] {
             font-size: 0.85rem;
@@ -424,7 +423,7 @@ def inject_custom_css():
             font-weight: 800;
         }
 
-        /* HOME PAGE SELECTION BOX BORDER */
+        /* HOME SELECTION BOX */
         .home-selection-border {
             border: 3px solid #3B82F6;
             border-radius: 25px;
@@ -457,7 +456,7 @@ def inject_custom_css():
             box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2) !important;
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
             margin-bottom: 12px;
-            border-bottom: 4px solid #172554 !important; /* Darker blue bottom border for 3D effect */
+            border-bottom: 4px solid #172554 !important;
         }
         div.stButton > button:hover {
             transform: translateY(-2px);
@@ -483,18 +482,24 @@ def inject_custom_css():
             padding-bottom: 5px;
             margin-bottom: 15px;
         }
-        /* Style the filter widgets container */
-        .stMultiSelect, .stDateInput, .stSelectbox {
-            background: white;
-            padding: 10px;
-            border-radius: 10px;
+        
+        /* Sidebar Widget Container Styling */
+        div[data-testid="stSidebar"] div[class*="stMultiSelect"], 
+        div[data-testid="stSidebar"] div[class*="stDateInput"], 
+        div[data-testid="stSidebar"] div[class*="stSelectbox"] {
+            background-color: white;
+            border-radius: 12px;
+            padding: 15px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
             border: 1px solid #E2E8F0;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
-            transition: border-color 0.2s;
-            margin-bottom: 10px;
+            margin-bottom: 15px;
         }
-        .stMultiSelect:hover, .stDateInput:hover, .stSelectbox:hover {
-            border-color: #3B82F6;
+        
+        /* Label Styling inside sidebar widgets */
+        div[data-testid="stSidebar"] label {
+            color: #1E3A8A !important;
+            font-weight: 600 !important;
+            margin-bottom: 5px;
         }
 
         /* GENERAL LAYOUT TWEAKS */
@@ -677,9 +682,9 @@ def render_dashboard(selected_key):
         df_filtered[date_col] = pd.to_datetime(df_filtered[date_col])
         min_date, max_date = df_filtered[date_col].min().date(), df_filtered[date_col].max().date()
         st.sidebar.markdown("#### Date Range")
-        d1, d2 = st.sidebar.columns(2)
-        start_date = d1.date_input("Start", min_date, key=f"start_date_{selected_key}")
-        end_date = d2.date_input("End", max_date, key=f"end_date_{selected_key}")
+        # STACKED DATES (NO COLUMNS)
+        start_date = st.sidebar.date_input("Start Date", min_date, key=f"start_date_{selected_key}")
+        end_date = st.sidebar.date_input("End Date", max_date, key=f"end_date_{selected_key}")
         mask = (df_filtered[date_col].dt.date >= start_date) & (df_filtered[date_col].dt.date <= end_date)
         df_filtered = df_filtered.loc[mask]
 
