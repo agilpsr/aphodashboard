@@ -812,7 +812,7 @@ def render_dashboard(selected_key):
                 
                 hotspot_display = hotspot_data[['House Index', 'Container Index']].sort_values('House Index', ascending=False).head(10).reset_index()
                 hotspot_display.columns = ['Street Name', 'House Index', 'Container Index']
-                st.dataframe(hotspot_display.style.background_gradient(cmap='Reds', subset=['House Index', 'Container Index']), use_container_width=True)
+                st.dataframe(hotspot_display.style.set_properties(**{'background-color': '#fee2e2', 'color': 'black'}), use_container_width=True)
 
             elif selected_key == 'intra' and col_zone in df_filtered.columns:
                 hotspot_data = df_filtered.groupby(col_zone).agg(
@@ -826,7 +826,7 @@ def render_dashboard(selected_key):
                 
                 hotspot_display = hotspot_data[['Premises Index', 'Container Index']].sort_values('Container Index', ascending=False).head(4).reset_index()
                 hotspot_display.columns = ['Zone', 'Premises Index', 'Container Index']
-                st.dataframe(hotspot_display.style.background_gradient(cmap='Reds', subset=['Premises Index', 'Container Index']), use_container_width=True)
+                st.dataframe(hotspot_display.style.set_properties(**{'background-color': '#fee2e2', 'color': 'black'}), use_container_width=True)
             else:
                 st.info("Data not available for hotspots.")
 
