@@ -489,7 +489,7 @@ def inject_custom_css():
         div[data-testid="stSidebar"] div[class*="stSelectbox"] {
             background-color: white;
             border-radius: 12px;
-            padding: 15px;
+            padding: 10px 15px; /* Adjusted padding for better vertical alignment */
             box-shadow: 0 2px 5px rgba(0,0,0,0.05);
             border: 1px solid #E2E8F0;
             margin-bottom: 15px;
@@ -499,7 +499,8 @@ def inject_custom_css():
         div[data-testid="stSidebar"] label {
             color: #1E3A8A !important;
             font-weight: 600 !important;
-            margin-bottom: 5px;
+            margin-bottom: 8px !important; /* Fixed spacing between label and input */
+            display: block;
         }
 
         /* GENERAL LAYOUT TWEAKS */
@@ -795,6 +796,39 @@ def render_dashboard(selected_key):
     m4.metric(label_hi, f"{hi_val:.2f}")
     m5.metric("Container Index (CI)", f"{ci_val:.2f}")
     m6.metric("Breteau Index (BI)", f"{bi_val:.2f}")
+
+    # --- HOTSPOT AREAS ---
+    if selected_key in ['peri', 'intra']:
+        with st.expander("🔥 Hotspot Areas", expanded=False):
+            if selected_key == 'peri' and col_street in df_filtered.columns:
+                hotspot_data = df_filtered.groupby(col_street).agg(
+                    pos=('pos_house_calc', lambda x: (x > 0).sum()),
+                    total=('pos_house_calc', 'count'),
+                    pos_cont=('pos_cont_calc', 'sum'),
+                    wet_cont=('wet_cont_calc', 'sum')
+                )
+                hotspot_data['House Index'] = (hotspot_data['pos'] / hotspot_data['total'] * 100).fillna(0)
+                hotspot_data['Container Index'] = (hotspot_data['pos_cont'] / hotspot_data['wet_cont'].replace(0, 1) * 100).fillna(0)
+                
+                hotspot_display = hotspot_data[['House Index', 'Container Index']].sort_values('House Index', ascending=False).head(10).reset_index()
+                hotspot_display.columns = ['Street Name', 'House Index', 'Container Index']
+                st.dataframe(hotspot_display.style.background_gradient(cmap='Reds', subset=['House Index', 'Container Index']), use_container_width=True)
+
+            elif selected_key == 'intra' and col_zone in df_filtered.columns:
+                hotspot_data = df_filtered.groupby(col_zone).agg(
+                    pos=('pos_house_calc', lambda x: (x > 0).sum()),
+                    total=('pos_house_calc', 'count'),
+                    pos_cont=('pos_cont_calc', 'sum'),
+                    wet_cont=('wet_cont_calc', 'sum')
+                )
+                hotspot_data['Premises Index'] = (hotspot_data['pos'] / hotspot_data['total'] * 100).fillna(0)
+                hotspot_data['Container Index'] = (hotspot_data['pos_cont'] / hotspot_data['wet_cont'].replace(0, 1) * 100).fillna(0)
+                
+                hotspot_display = hotspot_data[['Premises Index', 'Container Index']].sort_values('Container Index', ascending=False).head(4).reset_index()
+                hotspot_display.columns = ['Zone', 'Premises Index', 'Container Index']
+                st.dataframe(hotspot_display.style.background_gradient(cmap='Reds', subset=['Premises Index', 'Container Index']), use_container_width=True)
+            else:
+                st.info("Data not available for hotspots.")
 
     st.markdown("<hr style='margin: 30px 0;'>", unsafe_allow_html=True)
 
