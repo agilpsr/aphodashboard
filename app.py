@@ -63,6 +63,12 @@ SECTION_CONFIG = {
         'icon': '🧹',
         'surv_url': 'https://kf.kobotoolbox.org/api/v2/assets/aCn73Fp8jaAPz3TcG5Y3jJ/export-settings/esBxawoybCQnoWtYJ5mbsEw/data.csv',
         'id_url': None
+    },
+    'trainings': {
+        'title': 'Vocational Trainings and Other Activities',
+        'icon': '🎓',
+        'surv_url': 'https://kf.kobotoolbox.org/api/v2/assets/aiJgxnFro6or842wXSXTpj/export-settings/esXHfwHhERAeiR6Zc3P7bnJ/data.csv',
+        'id_url': None
     }
 }
 
@@ -420,8 +426,8 @@ def render_dashboard(selected_key):
         </div>
     """, unsafe_allow_html=True)
 
-    # --- ACTION REPORTS & SANITARY REPORTS LOGIC (Dynamic Data Source) ---
-    if selected_key in ['anti_larval', 'sanitary']:
+    # --- ACTION REPORTS, SANITARY REPORTS & TRAININGS LOGIC (Dynamic Data Source) ---
+    if selected_key in ['anti_larval', 'sanitary', 'trainings']:
         with st.spinner('Fetching Reports...'):
             df_action = load_kobo_data(current_config['surv_url'])
             
@@ -457,6 +463,18 @@ def render_dashboard(selected_key):
                 column_config[sanitary_col] = st.column_config.LinkColumn("Sanitary Report", display_text="📥 Download Sanitary")
             if toilet_col:
                 column_config[toilet_col] = st.column_config.LinkColumn("Toilet Report", display_text="📥 Download Toilet")
+
+        elif selected_key == 'trainings':
+            target_pres = "upload presentation_URL"
+            target_pic = "upload picture_URL"
+            
+            pres_col = clean_cols.get(target_pres.lower())
+            pic_col = clean_cols.get(target_pic.lower())
+
+            if pres_col:
+                column_config[pres_col] = st.column_config.LinkColumn("Presentation", display_text="📥 Download Presentation")
+            if pic_col:
+                column_config[pic_col] = st.column_config.LinkColumn("Event Picture", display_text="📥 Download Picture")
 
         system_cols = ['start', 'end', '_id', '_uuid', '_submission_time', '_validation_status', '_notes', '_status', '_submitted_by', '__version__', '_tags', '_index']
         display_cols = [c for c in df_action.columns if c not in system_cols]
@@ -907,7 +925,7 @@ def render_home_page():
         </div>
     """, unsafe_allow_html=True)
     
-    if st.session_state.get('page') not in ['peri', 'intra', 'flights', 'anti_larval', 'sanitary']:
+    if st.session_state.get('page') not in ['peri', 'intra', 'flights', 'anti_larval', 'sanitary', 'trainings']:
         st.header("Select Activity Section")
         
         # Grid Layout for Home Page
@@ -933,6 +951,10 @@ def render_home_page():
             st.write("") # Spacer
             if st.button("🛡️ Anti-Larval Action Reports", use_container_width=True, type="primary"):
                 st.session_state['page'] = 'anti_larval'
+                st.rerun()
+            st.write("") # Spacer
+            if st.button("🎓 Vocational Trainings", use_container_width=True, type="primary"):
+                st.session_state['page'] = 'trainings'
                 st.rerun()
                 
     else:
