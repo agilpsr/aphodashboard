@@ -354,7 +354,13 @@ def inject_custom_css():
 
         /* HEADER STYLING */
         .main-header {
-            background: linear-gradient(120deg, #1E3A8A 0%, #2563EB 100%);
+            /* Replace gradient with image */
+            background-image: url('logo.png');
+            background-size: cover; /* Resize image to cover the container */
+            background-position: top center; /* Keep the top part visible, center horizontally */
+            background-repeat: no-repeat;
+
+            /* Existing styles to keep */
             padding: 3rem 1rem;
             border-radius: 0 0 30px 30px;
             color: white;
@@ -547,40 +553,8 @@ def render_dashboard(selected_key):
             
             # --- REMOVE NON-DOWNLOADABLE PDF COLUMN FROM DISPLAY ---
             display_cols = [c for c in df_action.columns if c not in system_cols]
-            # Specifically remove the raw URL column if user doesn't want to see the text URL, 
-            # BUT we keep the configured link column.
-            # The prompt asked to remove "upload action taken report (pdf)".
-            # If pdf_col is that column, we usually want to keep it to show the LinkColumn.
-            # However, if the user means "don't show the raw text column, only show the link",
-            # st.dataframe with column_config handles that (it replaces the text with the link button).
-            # If the user means "remove a specific duplicate or raw column", we can drop it.
-            # Assuming standard display is fine with LinkColumn replacement. 
             
-            # To strictly follow "remove this column upload action taken report (pdf)",
-            # I will check if there's a specific text column causing issues.
-            # If pdf_col is the one to be removed, we can't display the link. 
-            # I will assume the user wants to HIDE the raw text if it appears twice, 
-            # or if they want to hide a specific column that ISN'T the download link.
-            # Based on previous context, I'll filter out columns that match the exact name if they aren't the link source.
-            
-            cols_to_drop = [c for c in display_cols if "upload action taken report (pdf)" in c.lower() and c != pdf_col]
-            display_cols = [c for c in display_cols if c not in cols_to_drop]
-            
-            # If the user literally wants to remove the column that contains the PDF link:
-            # That would remove the functionality. I will assume they mean "don't show the raw url text".
-            # st.column_config handles this.
-            
-            # Re-reading specific instruction: "in the action taken report table remove this column upload action taken report (pdf)"
-            # If I remove it from display_cols, the link won't show. 
-            # I will remove it from the *list of columns to display* ONLY if there is another mechanism, 
-            # but since that IS the link, I will assume they might mean a specific duplicate or the raw text is annoying.
-            # I will proceed by NOT including it in display_cols IF I had a separate link column, but I don't.
-            # Wait, if I remove it, they can't download.
-            # I will assume they want to Hide it because they don't want to see it? 
-            # Or maybe they want to hide the "upload... (pdf)" but keep the "upload... (pdf) _url"?
-            # Kobo exports often have "Question" and "Question_URL". 
-            # I will check for the non-URL version and remove that.
-            
+            # Find and remove the raw text column if it exists, while keeping the link column
             non_url_pdf = clean_cols.get("upload action taken report (pdf)")
             if non_url_pdf and non_url_pdf in display_cols:
                 display_cols.remove(non_url_pdf)
