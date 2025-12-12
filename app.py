@@ -293,13 +293,6 @@ def generate_narrative_summary(df, selected_key, date_col, col_street, col_subzo
 # --- AUTHENTICATION ---
 def check_password():
     """Returns `True` if the user had a correct password."""
-    def password_entered():
-        if st.session_state["password"] == "Aphotrz@2025":
-            st.session_state["authenticated"] = True
-            del st.session_state["password"] 
-        else:
-            st.session_state["authenticated"] = False
-
     if st.session_state.get("authenticated", False):
         return True
 
@@ -319,10 +312,15 @@ def check_password():
     """, unsafe_allow_html=True)
     
     st.markdown('<div class="login-box"><h2>🔐 Access Restricted</h2><p>Please enter your credentials.</p></div>', unsafe_allow_html=True)
-    st.text_input("Password", type="password", on_change=password_entered, key="password")
     
-    if "authenticated" in st.session_state and not st.session_state["authenticated"]:
-        st.error("😕 Incorrect password")
+    password = st.text_input("Password", type="password", key="password_input")
+    
+    if st.button("Enter", type="primary"):
+        if password == "Aphotrz@2025":
+            st.session_state["authenticated"] = True
+            st.rerun()
+        else:
+            st.error("😕 Incorrect password")
         
     return False
 
@@ -928,6 +926,13 @@ def render_dashboard(selected_key):
             staff_final = staff_perf[[c for c in final_cols_staff if c in staff_perf.columns]]
             st.dataframe(staff_final, use_container_width=True)
             st.download_button("Download Staff Excel", to_excel(staff_final), "Staff_Performance.xlsx", key=f"staff_excel_download_{selected_key}")
+            
+            # --- ADDED PIE CHART FOR STAFF ENTRIES ---
+            st.markdown("#### 🥧 Work Distribution (Total Entries)")
+            fig_staff_pie = px.pie(staff_final, values='Total Entries', names='Name', hole=0.4)
+            st.plotly_chart(fig_staff_pie, use_container_width=True)
+            # -----------------------------------------
+            
         else: st.warning("Username column not found.")
 
     c_month, c_fort = st.columns(2)
